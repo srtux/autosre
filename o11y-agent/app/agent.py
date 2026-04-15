@@ -27,10 +27,9 @@ registry = AgentRegistry(project_id=project_id, location="global")
 
 # Define sub-agents with MCP tools
 
-logging_mcp_server = os.environ.get(
-    "LOGGING_MCP_SERVER_ID",
-    f"projects/{project_id}/locations/global/mcpServers/agentregistry-00000000-0000-0000-8775-8836af20f907"
-)
+logging_mcp_server = os.environ.get("LOGGING_MCP_SERVER_ID")
+if not logging_mcp_server:
+    raise ValueError("LOGGING_MCP_SERVER_ID environment variable must be set.")
 
 logging_agent = Agent(
     name="LoggingAgent",

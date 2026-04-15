@@ -16,6 +16,16 @@ cd ../o11y-agent
 uv sync
 ```
 
+#### Environment Variables
+The `o11y-agent` requires the `LOGGING_MCP_SERVER_ID` environment variable to be set. This should point to the full resource name of the MCP server in the Agent Registry.
+
+Example `.env` file content:
+```env
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=us-central1
+LOGGING_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/your-mcp-server-id
+```
+
 ### Step 1: Start the Observability Agent Server
 
 Run the `o11y-agent` as an API server with A2A enabled. From the `o11y-agent` directory:
