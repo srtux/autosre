@@ -1,23 +1,5 @@
 # sre-helper
 
-Simple ReAct agent
-Agent generated with `agents-cli` version `0.0.1a1`
-
-## Project Structure
-
-```
-sre-helper/
-├── app/         # Core agent code
-│   ├── agent.py               # Main agent logic
-│   ├── agent_engine_app.py    # Agent Engine application logic
-│   └── app_utils/             # App utilities and helpers
-├── tests/                     # Unit, integration, and load tests
-├── GEMINI.md                  # AI-assisted development guide
-└── pyproject.toml             # Project dependencies
-```
-
-> 💡 **Tip:** Use [Gemini CLI](https://github.com/google-gemini/gemini-cli) for AI-assisted development - project context is pre-configured in `GEMINI.md`.
-
 ## Requirements
 
 Before you begin, ensure you have:

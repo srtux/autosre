@@ -21,9 +21,9 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
 
-from app.agent import get_app
-from app.app_utils.telemetry import setup_telemetry
-from app.app_utils.typing import Feedback
+from agent import get_app
+from app_utils.telemetry import setup_telemetry
+from app_utils.typing import Feedback
 
 adk_app = get_app()
 

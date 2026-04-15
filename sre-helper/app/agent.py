@@ -26,7 +26,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent, create_agent_card
 
-from app.app_utils import config
+from app_utils import config
 
 
 # Get observability delegator from registry as requested by user

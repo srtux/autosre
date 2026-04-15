@@ -14,7 +14,7 @@
 
 import importlib
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -83,12 +83,12 @@ def test_a2a_wrapper_uses_remote_rest_when_local_disabled(
 
     monkeypatch.setattr("google.auth.default", lambda: (DummyCreds(), "test-project"))
 
-    send_response = AsyncMock()
+    send_response = MagicMock()
     send_response.status_code = 200
     send_response.json.return_value = {"task": {"id": "task-123"}}
     send_response.raise_for_status.return_value = None
 
-    poll_response = AsyncMock()
+    poll_response = MagicMock()
     poll_response.json.return_value = {
         "status": {"state": "TASK_STATE_COMPLETED"},
         "history": [{"role": "ROLE_AGENT", "content": [{"text": "remote complete"}]}],

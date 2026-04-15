@@ -1,0 +1,9 @@
+--extra-index-url https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/
+google-cloud-aiplatform[adk,agent_engines]
+a2a-sdk>=0.3.26,<0.4
+pydantic
+cloudpickle
+requests
+httpx
+httpx-sse
+google-cloud-iamconnectorcredentials

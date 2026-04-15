@@ -1,0 +1,8 @@
+google-cloud-aiplatform[adk,agent_engines]
+pydantic
+cloudpickle
+requests
+httpx
+httpx-sse
+a2a-sdk @ git+https://github.com/a2aproject/a2a-python.git
+google-cloud-iamconnectorcredentials
