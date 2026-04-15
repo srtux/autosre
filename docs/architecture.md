@@ -81,6 +81,6 @@ To allow this, the service account running the Reasoning Engine must be granted 
 **Example Command:**
 ```bash
 gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-aiplatform.iam.gserviceaccount.com" \
+    --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-aiplatform-re.iam.gserviceaccount.com" \
     --role="roles/agentregistry.viewer"
 ```

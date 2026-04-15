@@ -11,7 +11,7 @@ PROJECT_NUMBER=$2
 
 echo "Granting roles/agentregistry.viewer to AI Platform service agent..."
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-    --member="serviceAccount:service-$PROJECT_NUMBER@gcp-sa-aiplatform.iam.gserviceaccount.com" \
+    --member="serviceAccount:service-$PROJECT_NUMBER@gcp-sa-aiplatform-re.iam.gserviceaccount.com" \
     --role="roles/agentregistry.viewer"
 
 echo "Done."
