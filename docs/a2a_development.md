@@ -103,3 +103,43 @@ To verify the actual communication between agents locally:
     .venv/bin/python run_a2a_test.py
     ```
     This script sets `LOCAL_A2A=True` and sends a query that triggers the `o11y_agent` tool, verifying the full roundtrip.
+
+## 6. Known Blockers for Agent Engine A2A Testing
+
+The following issues currently prevent reliable validation of A2A behavior in the
+`sre-helper` Agent Engine path:
+
+1. **`app.agent_engine_app` imports a missing symbol**
+   - The module imports `get_app` from `app.agent`, but `app/agent.py` only exports
+     the A2A `app` object and helper functions.
+   - Impact: Agent Engine import/setup can fail before any A2A test logic runs.
+
+2. **Integration tests reference stale agent symbols**
+   - `tests/integration/test_agent.py` and
+     `tests/integration/test_agent_engine_app.py` import `root_agent` from
+     `app.agent`, but `root_agent` is no longer defined in the current A2A-first
+     implementation.
+   - Impact: Tests target an outdated architecture and do not exercise the current
+     code paths.
+
+3. **`test_a2a.py` does not test real A2A transport**
+   - The test defines an inline `o11y_agent` Python function and wires it directly
+     as a tool, rather than invoking `make_a2a_wrapper()` and validating JSON-RPC
+     or Reasoning Engine REST behavior.
+   - Impact: Passing results do not prove A2A communication works.
+
+4. **Local A2A mode is effectively static at import-time**
+   - `LOCAL_A2A` is computed once in `app_utils/config.py` and imported as a module
+     constant in `app/agent.py`.
+   - Impact: Runtime `monkeypatch.setenv("LOCAL_A2A", ...)` in tests may not change
+     behavior unless modules are reloaded in a controlled way.
+
+5. **Hardcoded local `.env` path in `sre-helper/app/a2a_server.py`**
+   - The file requires `/Users/summitt/work/autosre/.env`.
+   - Impact: Running in CI/containers fails before app startup, blocking local A2A
+     smoke testing.
+
+To make Agent Engine A2A testing meaningful, align tests with the current
+`A2aAgent` architecture, remove stale symbol imports, and validate both local
+(`A2AClient`) and remote (`message:send` + task polling) paths with deterministic
+HTTP mocks.
