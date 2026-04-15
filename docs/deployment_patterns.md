@@ -57,7 +57,53 @@ To enable full functionality, including Agent-to-Agent (A2A) calls and MCP tool 
 ### Setup Script
 Use `scripts/setup_iam.sh` to automate the granting of these roles. Note that `roles/aiplatform.user` was added to this script to support A2A communication.
 
-## 3. Current State (April 2026)
+## 3. Keep Module Import Side-Effect Free
+
+### The Problem
+Vertex AI Agent Engine cold-starts a container and then imports your agent
+module so cloudpickle can rehydrate the exported `app` object. Anything your
+module does at import time — `google.auth.default()`, `AgentRegistry(...)`,
+MCP toolset resolution, network calls — runs before the runtime environment
+is guaranteed to be ready. A missing `GOOGLE_CLOUD_PROJECT`, a boot-order
+race on IAM, or a transient registry error will then surface as a cryptic
+cold-start import failure, not a runtime error from the first request.
+
+### The Rule
+Top-level module code in a deployed agent must only do pure Python work:
+imports, class and function definitions, `load_dotenv()`, dataclass
+literals, and constructing the `A2aAgent` / `AdkApp` export itself.
+Everything that touches auth, registry, or the network goes inside a lazy
+builder that runs on first `execute()`.
+
+### Pattern
+```python
+_ops_agent: Agent | None = None
+
+def get_ops_agent() -> Agent:
+    global _ops_agent
+    if _ops_agent is not None:
+        return _ops_agent
+    project_id = _resolve_project_id()   # lazily imports google.auth
+    registry = AgentRegistry(project_id=project_id, location="global")
+    _ops_agent = Agent(..., tools=[registry.get_mcp_toolset(...)])
+    return _ops_agent
+
+class MyExecutor(AgentExecutor):
+    def __init__(self):
+        self._runner = None
+    def _init_adk(self):
+        if self._runner is None:
+            self._runner = Runner(agent=get_ops_agent(), ...)
+        return self._runner
+    async def execute(self, context, event_queue):
+        runner = self._init_adk()
+        ...
+```
+
+This is the pattern used in `o11y-agent/app/agent.py`. Copy it for any new
+agent.
+
+## 4. Current State (April 2026)
 
 ### Active Agents
 *   **`o11y-agent`**: Observability agent with tools for Logging, Tracing, Monitoring, and Error Reporting.

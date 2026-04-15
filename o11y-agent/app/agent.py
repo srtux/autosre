@@ -1,51 +1,112 @@
-from google.adk.agents import Agent
-from google.adk.models import Gemini
-from google.genai import types
-from google.adk.integrations.agent_registry import AgentRegistry
+import os
 
-from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent, create_agent_card
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.types import AgentSkill, TaskState, Part, TextPart
+from a2a.types import AgentSkill, Part, TaskState, TextPart
 from a2a.utils import new_agent_text_message, new_task
-
+from dotenv import load_dotenv
+from google.adk.agents import Agent
 from google.adk.artifacts import InMemoryArtifactService
+from google.adk.integrations.agent_registry import AgentRegistry
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+from google.adk.models import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.genai import types
+from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent, create_agent_card
 
-import os
-import google.auth
-from dotenv import load_dotenv
-
+# load_dotenv is safe at import time: it only reads a file if one exists and
+# never touches the network. Anything that hits auth, the registry, or the
+# MCP servers is deferred into the lazy builder below so that Vertex AI Agent
+# Engine can import this module during cold start without tripping on missing
+# env vars or permissions that are only ready once the runtime is fully up.
 load_dotenv()
 
-project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-if not project_id:
-    _, project_id = google.auth.default()
-    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
-
-registry = AgentRegistry(project_id=project_id, location="global")
-
-logging_mcp_server = os.environ.get(
-    "LOGGING_MCP_SERVER_ID",
-    "projects/agent-o11y/locations/global/mcpServers/agentregistry-00000000-0000-0000-8775-8836af20f907",
+# Default MCP server resource names. Each can be overridden via env var so
+# the same image can target different projects without code changes.
+_DEFAULT_LOGGING_MCP_SERVER = (
+    "projects/agent-o11y/locations/global/mcpServers/"
+    "agentregistry-00000000-0000-0000-8775-8836af20f907"
 )
-trace_mcp_server = "projects/agent-o11y/locations/global/mcpServers/agentregistry-00000000-0000-0000-fc11-8c59ea75c8fb"
-monitoring_mcp_server = "projects/agent-o11y/locations/global/mcpServers/agentregistry-00000000-0000-0000-c0af-2a60b0a7228f"
-error_reporting_mcp_server = "projects/agent-o11y/locations/global/mcpServers/agentregistry-00000000-0000-0000-f5e4-899818873ec1"
+_DEFAULT_TRACE_MCP_SERVER = (
+    "projects/agent-o11y/locations/global/mcpServers/"
+    "agentregistry-00000000-0000-0000-fc11-8c59ea75c8fb"
+)
+_DEFAULT_MONITORING_MCP_SERVER = (
+    "projects/agent-o11y/locations/global/mcpServers/"
+    "agentregistry-00000000-0000-0000-c0af-2a60b0a7228f"
+)
+_DEFAULT_ERROR_REPORTING_MCP_SERVER = (
+    "projects/agent-o11y/locations/global/mcpServers/"
+    "agentregistry-00000000-0000-0000-f5e4-899818873ec1"
+)
 
 
-def get_ops_agent():
-    print(
-        f"Initializing logging agent with MCP servers: {logging_mcp_server}, {trace_mcp_server}, {monitoring_mcp_server}, {error_reporting_mcp_server}"
+_ops_agent: Agent | None = None
+
+
+def _resolve_project_id() -> str:
+    """Resolve the Google Cloud project ID without importing google.auth at
+    module load time.
+
+    Reads GOOGLE_CLOUD_PROJECT first, then falls back to
+    google.auth.default(). Raises if neither is available.
+    """
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if project_id:
+        return project_id
+
+    import google.auth  # deferred: keep module import auth-free
+
+    _, project_id = google.auth.default()
+    if not project_id:
+        raise RuntimeError(
+            "Could not resolve GOOGLE_CLOUD_PROJECT. Set it explicitly via "
+            "env var or ensure application default credentials expose a project."
+        )
+    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+    return project_id
+
+
+def get_ops_agent() -> Agent:
+    """Lazily build and cache the observability ADK agent.
+
+    All external dependencies (google.auth, AgentRegistry, MCP toolsets) are
+    resolved on the first call instead of at module import. This keeps Agent
+    Engine cold-start imports side-effect free.
+    """
+    global _ops_agent
+    if _ops_agent is not None:
+        return _ops_agent
+
+    project_id = _resolve_project_id()
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+
+    registry = AgentRegistry(project_id=project_id, location="global")
+
+    logging_mcp_server = os.environ.get(
+        "LOGGING_MCP_SERVER_ID", _DEFAULT_LOGGING_MCP_SERVER
+    )
+    trace_mcp_server = os.environ.get(
+        "TRACE_MCP_SERVER_ID", _DEFAULT_TRACE_MCP_SERVER
+    )
+    monitoring_mcp_server = os.environ.get(
+        "MONITORING_MCP_SERVER_ID", _DEFAULT_MONITORING_MCP_SERVER
+    )
+    error_reporting_mcp_server = os.environ.get(
+        "ERROR_REPORTING_MCP_SERVER_ID", _DEFAULT_ERROR_REPORTING_MCP_SERVER
     )
 
-    return Agent(
+    print(
+        "Initializing logging agent with MCP servers: "
+        f"{logging_mcp_server}, {trace_mcp_server}, "
+        f"{monitoring_mcp_server}, {error_reporting_mcp_server}"
+    )
+
+    _ops_agent = Agent(
         name="OpsAgent",
         model=Gemini(
             model="gemini-2.5-flash",
@@ -53,8 +114,8 @@ def get_ops_agent():
         ),
         instruction="""
         You are a specialist in observability (logs, traces, metrics, and error reports). Use your tools to investigate production issues.
-        You can query logs, view traces, check metrics, and list error reports. 
-        When querying logs using the MCP, use the Logging Query Language. Remember that Boolean operators (AND, OR, NOT) must be capitalized. 
+        You can query logs, view traces, check metrics, and list error reports.
+        When querying logs using the MCP, use the Logging Query Language. Remember that Boolean operators (AND, OR, NOT) must be capitalized.
         You can filter by fields like resource.type, severity, and textPayload. Example: `resource.type=\"gce_instance\" AND severity>=ERROR`.
         """,
         tools=[
@@ -64,6 +125,7 @@ def get_ops_agent():
             registry.get_mcp_toolset(error_reporting_mcp_server),
         ],
     )
+    return _ops_agent
 
 
 class O11yAgentExecutor(AgentExecutor):
@@ -71,7 +133,22 @@ class O11yAgentExecutor(AgentExecutor):
 
     def __init__(self):
         """Initialize the executor."""
-        pass
+        self._runner: Runner | None = None
+
+    def _init_adk(self) -> Runner:
+        """Build the Runner once on first execute to match the canonical
+        A2aAgent executor pattern. Avoids rebuilding the agent/runner/session
+        services on every request."""
+        if self._runner is None:
+            ops_agent = get_ops_agent()
+            self._runner = Runner(
+                app_name=ops_agent.name,
+                agent=ops_agent,
+                artifact_service=InMemoryArtifactService(),
+                session_service=InMemorySessionService(),
+                memory_service=InMemoryMemoryService(),
+            )
+        return self._runner
 
     async def execute(
         self,
@@ -101,19 +178,10 @@ class O11yAgentExecutor(AgentExecutor):
                 ),
             )
 
-            # Defer agent creation until execution to avoid auth issues during startup
-            ops_agent = get_ops_agent()
-
-            runner = Runner(
-                app_name=ops_agent.name,
-                agent=ops_agent,
-                artifact_service=InMemoryArtifactService(),
-                session_service=InMemorySessionService(),
-                memory_service=InMemoryMemoryService(),
-            )
+            runner = self._init_adk()
 
             session = await runner.session_service.create_session(
-                app_name=ops_agent.name,
+                app_name=runner.app_name,
                 user_id=user_id,
                 state={},
                 session_id=task.context_id,
