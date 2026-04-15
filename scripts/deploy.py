@@ -74,7 +74,10 @@ remote_app = client.agent_engines.create(
             "requests",
             "httpx",
             "httpx-sse",
-            "a2a-sdk @ git+https://github.com/a2aproject/a2a-python.git",
+            # Pin to a released a2a-sdk version to avoid runtime drift between
+            # the objects cloudpickle serialized locally and whatever HEAD of
+            # main the container would otherwise install.
+            "a2a-sdk>=0.3.26,<0.4",
             "google-cloud-iamconnectorcredentials",
         ],
         "extra_packages": extra_packages,
