@@ -1,0 +1,30 @@
+[project]
+name = "o11y-agent"
+version = "0.1.0"
+description = "Observability Agent for SRE"
+authors = [{ name = "Summit", email = "summitt@google.com" }]
+dependencies = [
+    "google-adk>=1.30.0",
+    "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
+    "google-cloud-aiplatform[agent-engines]>=1.130.0",
+    "a2a-sdk>=0.3.26",
+    "python-dotenv>=1.0.0",
+    "google-cloud-iamconnectorcredentials",
+]
+requires-python = ">=3.11,<3.13"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.agents-cli]
+name = "o11y-agent"
+description = "Observability Agent"
+base_template = "adk"
+agent_directory = "app"
+
+[tool.agents-cli.create_params]
+deployment_target = "agent_engine"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

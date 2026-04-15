@@ -1,0 +1,11 @@
+{
+  "name": "o11y_agent",
+  "description": "Observability Agent for SRE",
+  "url": "http://localhost:8005/a2a/app",
+  "transport": "HTTP_JSON",
+  "version": "1.0.0",
+  "capabilities": {},
+  "defaultInputModes": [],
+  "defaultOutputModes": [],
+  "skills": []
+}
