@@ -1,6 +1,6 @@
 # System Architecture
 
-This document describes the architecture of the SRE Helper system, which consists of a root agent orchestrating specialist observability agents.
+This document describes the architecture of the AutoSRE system, which consists of a root agent orchestrating specialist observability agents.
 
 ## Overview
 

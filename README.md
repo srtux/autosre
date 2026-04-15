@@ -1,6 +1,6 @@
-# 🛠️ SRE Helper: Multi-Agent Observability Orchestrator
+# 🛠️ AutoSRE: Multi-Agent Observability Orchestrator
 
-Welcome to the **SRE Helper** repository. This project implements a state-of-the-art multi-agent system designed to assist Site Reliability Engineers (SREs) in investigating and resolving incidents using advanced AI reasoning.
+Welcome to the **AutoSRE** repository. This project implements a state-of-the-art multi-agent system designed to assist Site Reliability Engineers (SREs) in investigating and resolving incidents using advanced AI reasoning.
 
 ---
 

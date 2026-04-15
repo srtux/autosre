@@ -1,6 +1,6 @@
 # Observability Agent (o11y-agent)
 
-This component provides a specialized parallel agent for observability tasks in the SRE Helper system.
+This component provides a specialized parallel agent for observability tasks in the AutoSRE system.
 
 ## Overview
 
