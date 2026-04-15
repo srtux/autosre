@@ -32,12 +32,23 @@ registry = AgentRegistry(project_id=PROJECT_ID, location=LOCATION)
 
 
 # Get observability delegator from registry as requested by user
-def make_a2a_wrapper(remote_agent):
+def make_a2a_wrapper():
     def o11y_agent(query: str) -> str:
         """Call the remote o11y agent using A2A protocol."""
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
         from google.adk.runners import Runner
         from google.adk.sessions import InMemorySessionService
         from google.genai import types
+
+        if LOCAL_A2A:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            agent_card_path = os.path.abspath(os.path.join(current_dir, "../../o11y-agent/app/agent.json"))
+            remote_agent = RemoteA2aAgent(
+                name="o11y_agent",
+                agent_card=agent_card_path
+            )
+        else:
+            remote_agent = registry.get_remote_a2a_agent("agents/o11y-agent")
 
         session_service = InMemorySessionService()
         session = session_service.create_session_sync(user_id="local_user", app_name="o11y_call")
@@ -59,23 +70,7 @@ def make_a2a_wrapper(remote_agent):
         return response or "No response from remote agent"
     return o11y_agent
 
-if LOCAL_A2A:
-
-    from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
-    print("Using local A2A agent on port 8005")
-
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    agent_card_path = os.path.abspath(os.path.join(current_dir, "../../o11y-agent/app/agent.json"))
-
-    remote_agent = RemoteA2aAgent(
-        name="o11y_agent",
-        agent_card=agent_card_path
-    )
-    o11y_agent = make_a2a_wrapper(remote_agent)
-
-else:
-    remote_agent = registry.get_remote_a2a_agent("agents/o11y-agent")
-    o11y_agent = make_a2a_wrapper(remote_agent)
+o11y_agent = make_a2a_wrapper()
 
 
 root_agent = Agent(

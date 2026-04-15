@@ -10,6 +10,7 @@ PROJECT_ID=$1
 REGION="us-central1"
 
 echo "Setting environment variables for deployment..."
+export GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"
 export OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental"
 export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"
 

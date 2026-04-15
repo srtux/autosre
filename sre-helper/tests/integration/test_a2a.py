@@ -63,46 +63,45 @@ async def test_a2a_communication(monkeypatch):
 
         import app.agent
         importlib.reload(app.agent)
+        # Using live model as requested
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+
         from app.agent import root_agent
 
+        session_service = InMemorySessionService()
+        session = session_service.create_session_sync(user_id="test_user", app_name="test")
+        runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
 
-    # Using live model as requested
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-
-    session_service = InMemorySessionService()
-    session = session_service.create_session_sync(user_id="test_user", app_name="test")
-    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
-
-    message = types.Content(
-        role="user", parts=[types.Part.from_text(text="Investigate incident 123 using o11y_agent.")]
-    )
-
-    events = list(
-        runner.run(
-            new_message=message,
-            user_id="test_user",
-            session_id=session.id,
+        message = types.Content(
+            role="user", parts=[types.Part.from_text(text="Investigate incident 123 using o11y_agent.")]
         )
-    )
 
-    print(f"Events yielded count: {len(events)}")
-    for e in events:
-        print(f"Event from {e.author}: {e.content}")
-        if hasattr(e, 'error_message') and e.error_message:
-            print(f"  Error: {e.error_message}")
+        events = list(
+            runner.run(
+                new_message=message,
+                user_id="test_user",
+                session_id=session.id,
+            )
+        )
 
-    # Verify that the observability delegator was called by inspecting events
-    has_call = False
-    for e in events:
-        if e.content and e.content.parts:
-            for p in e.content.parts:
-                if p.function_call and p.function_call.name == "o11y_agent":
-                    has_call = True
+        print(f"Events yielded count: {len(events)}")
+        for e in events:
+            print(f"Event from {e.author}: {e.content}")
+            if hasattr(e, 'error_message') and e.error_message:
+                print(f"  Error: {e.error_message}")
+
+        # Verify that the observability delegator was called by inspecting events
+        has_call = False
+        for e in events:
+            if e.content and e.content.parts:
+                for p in e.content.parts:
+                    if p.function_call and p.function_call.name == "o11y_agent":
+                        has_call = True
+                        break
+                if has_call:
                     break
-            if has_call:
-                break
 
-    assert has_call, "The observability delegator was not called"
+        assert has_call, "The observability delegator was not called"
 
 # MCP tests moved to test_mcp.py
