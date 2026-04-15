@@ -70,3 +70,17 @@ These servers provide tools for the agents to interact with Google Cloud service
 3. `o11y-agent` orchestrates the request among its sub-agents (Logging, Trace, Metrics).
 4. Each sub-agent uses its specific MCP tool to query Google Cloud.
 5. The results are aggregated and returned back to `sre-helper`, which then provides a consolidated response to the user.
+
+## Security & Permissions
+
+### Agent Registry Access
+When deployed to Vertex AI Reasoning Engine, the agents may need to query the Cloud Agent Registry to resolve remote agents or MCP servers.
+
+To allow this, the service account running the Reasoning Engine must be granted the **Agent Registry Viewer** role (`roles/agentregistry.viewer`) on the project.
+
+**Example Command:**
+```bash
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-aiplatform.iam.gserviceaccount.com" \
+    --role="roles/agentregistry.viewer"
+```
