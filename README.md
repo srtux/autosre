@@ -65,7 +65,8 @@ gcloud config set project <your-project-id>
 From the `o11y-agent` directory:
 
 ```bash
-uv run agents-cli deploy --project=<your-project-id> --region=us-central1
+uv sync
+uv run python ../scripts/deploy.py .
 ```
 
 #### 3. Deploy sre-helper (Root Agent)
@@ -73,7 +74,8 @@ uv run agents-cli deploy --project=<your-project-id> --region=us-central1
 From the `sre-helper` directory:
 
 ```bash
-uv run agents-cli deploy --project=<your-project-id> --region=us-central1
+uv sync
+uv run python ../scripts/deploy.py .
 ```
 
 ---

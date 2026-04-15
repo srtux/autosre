@@ -54,30 +54,22 @@ uv run run_a2a_test.py
 
 ## Deployment to Agent Engine
 
-To deploy the agents to Vertex AI Agent Engine (Reasoning Engine), use the `agents-cli deploy` command.
-
-### Prerequisites
-
-Ensure you have the correct project and region set:
-```bash
-gcloud config set project <your-project-id>
-```
+To deploy the agents to Vertex AI Agent Engine (Reasoning Engine), use the custom `deploy.py` script.
 
 ### Deploying o11y-agent
 
 From the `o11y-agent` directory:
 ```bash
-uv run agents-cli deploy --project=<your-project-id> --region=<your-region>
+uv sync
+uv run python ../scripts/deploy.py .
 ```
-> [!IMPORTANT]
-> The `o11y-agent` requires a file named `app/agent_engine_app.py` exposing `agent_engine` (an instance of `AdkApp`) for successful introspection during deployment.
-> Also, ensure that agents requiring missing registry tools (like Trace and Metrics) are commented out in `app/agent.py` during load to avoid introspection failures.
 
 ### Deploying sre-helper
 
 From the `sre-helper` directory:
 ```bash
-uv run agents-cli deploy --project=<your-project-id> --region=<your-region>
+uv sync
+uv run python ../scripts/deploy.py .
 ```
 
 ### A2A Discovery in Production

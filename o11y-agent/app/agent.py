@@ -1,4 +1,5 @@
 from google.adk.agents import Agent, ParallelAgent
+from google.adk.apps.app import App
 
 from google.adk.models import Gemini
 from google.genai import types
@@ -23,8 +24,6 @@ os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 registry = AgentRegistry(project_id=project_id, location="global")
 
 
-
-
 # Define sub-agents with MCP tools
 
 logging_mcp_server = os.environ.get("LOGGING_MCP_SERVER_ID")
@@ -42,12 +41,8 @@ logging_agent = Agent(
     tools=[registry.get_mcp_toolset(logging_mcp_server)],
 )
 
-# Wrap in ParallelAgent
-
-observability_agent = ParallelAgent(
+# Create a proper App object to satisfy AdkApp expectations
+app = App(
     name="o11y_agent",
-    sub_agents=[logging_agent],
+    root_agent=logging_agent,
 )
-
-app = observability_agent
-root_agent = observability_agent
