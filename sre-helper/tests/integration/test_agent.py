@@ -23,22 +23,26 @@ from google.genai import types
 
 
 class DummyRemoteA2aAgent:
-    def __init__(self, **kwargs): pass
+    def __init__(self, **kwargs):
+        pass
+
 
 class DummyGoogleAuth:
-    def __init__(self, **kwargs): pass
+    def __init__(self, **kwargs):
+        pass
+
 
 google.adk.tools.GoogleAuth = getattr(google.adk.tools, "GoogleAuth", DummyGoogleAuth)
-
 
 
 class MockToolAgent(BaseTool):
     def __init__(self, **kwargs):
         super().__init__(name="o11y_agent", description="Observability Agent")
 
-google.adk.agents.RemoteA2aAgent = getattr(google.adk.agents, "RemoteA2aAgent", DummyRemoteA2aAgent)
 
-
+google.adk.agents.RemoteA2aAgent = getattr(
+    google.adk.agents, "RemoteA2aAgent", DummyRemoteA2aAgent
+)
 
 
 @pytest.mark.asyncio
@@ -48,11 +52,15 @@ async def test_agent_stream() -> None:
     Tests that the agent returns valid streaming responses.
     """
     from unittest.mock import patch
-    with patch("google.adk.integrations.agent_registry.AgentRegistry.get_remote_a2a_agent") as mock_get_agent:
+
+    with patch(
+        "google.adk.integrations.agent_registry.AgentRegistry.get_remote_a2a_agent"
+    ) as mock_get_agent:
         mock_get_agent.return_value = MockToolAgent()
         import importlib
 
         import app.agent
+
         importlib.reload(app.agent)
         from app.agent import root_agent
 

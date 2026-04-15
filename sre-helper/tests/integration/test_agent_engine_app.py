@@ -23,21 +23,25 @@ from app.agent_engine_app import AgentEngineApp
 
 
 class DummyGoogleAuth:
-    def __init__(self, **kwargs): pass
+    def __init__(self, **kwargs):
+        pass
+
 
 google.adk.tools.GoogleAuth = getattr(google.adk.tools, "GoogleAuth", DummyGoogleAuth)
 
 
 class DummyRemoteA2aAgent:
-
     def __init__(self, name="o11y_agent", **kwargs):
         self.name = name
         self.__name__ = name
+
     def __call__(self, *args, **kwargs):
         return "Mocked response"
-google.adk.agents.RemoteA2aAgent = getattr(google.adk.agents, "RemoteA2aAgent", DummyRemoteA2aAgent)
 
 
+google.adk.agents.RemoteA2aAgent = getattr(
+    google.adk.agents, "RemoteA2aAgent", DummyRemoteA2aAgent
+)
 
 
 @pytest.fixture
@@ -47,6 +51,7 @@ def agent_app(monkeypatch: pytest.MonkeyPatch) -> "AgentEngineApp":
     monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
 
     from unittest.mock import MagicMock
+
     mock_client = MagicMock()
     monkeypatch.setattr("google.cloud.logging.Client", lambda: mock_client)
 
@@ -65,16 +70,21 @@ async def test_agent_stream_query(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
 
     from unittest.mock import MagicMock
+
     mock_client = MagicMock()
     monkeypatch.setattr("google.cloud.logging.Client", lambda: mock_client)
 
     from unittest.mock import MagicMock, patch
-    with patch("google.adk.integrations.agent_registry.AgentRegistry.get_remote_a2a_agent") as mock_get_agent:
+
+    with patch(
+        "google.adk.integrations.agent_registry.AgentRegistry.get_remote_a2a_agent"
+    ) as mock_get_agent:
         mock_get_agent.return_value = DummyRemoteA2aAgent(name="o11y_agent")
         import importlib
 
         import app.agent
         import app.agent_engine_app
+
         importlib.reload(app.agent)
         importlib.reload(app.agent_engine_app)
         from app.agent import root_agent

@@ -37,5 +37,25 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="$MEMBER" \
     --role="roles/mcp.toolUser"
 
+# Grant Trace Viewer
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="$MEMBER" \
+    --role="roles/cloudtrace.viewer"
+
+# Grant Monitoring Viewer
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="$MEMBER" \
+    --role="roles/monitoring.viewer"
+
+# Grant Error Reporting Viewer
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="$MEMBER" \
+    --role="roles/errorreporting.viewer"
+
+# Grant Vertex AI User (Essential for A2A and tool calls)
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="$MEMBER" \
+    --role="roles/aiplatform.user"
+
 echo "Done."
 
