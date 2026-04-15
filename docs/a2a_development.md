@@ -104,42 +104,32 @@ To verify the actual communication between agents locally:
     ```
     This script sets `LOCAL_A2A=True` and sends a query that triggers the `o11y_agent` tool, verifying the full roundtrip.
 
-## 6. Known Blockers for Agent Engine A2A Testing
+## 6. Agent Engine A2A Testing Baseline (Updated April 15, 2026)
 
-The following issues currently prevent reliable validation of A2A behavior in the
-`sre-helper` Agent Engine path:
+The `sre-helper` project now includes a minimum viable test baseline aligned with
+the current A2A-first architecture:
 
-1. **`app.agent_engine_app` imports a missing symbol**
-   - The module imports `get_app` from `app.agent`, but `app/agent.py` only exports
-     the A2A `app` object and helper functions.
-   - Impact: Agent Engine import/setup can fail before any A2A test logic runs.
+1. **Agent Engine compatibility export**
+   - `app.agent` exposes `get_app()` that returns the exported A2A app object.
+   - This keeps `app.agent_engine_app` import-compatible while preserving the
+     `A2aAgent` runtime model.
 
-2. **Integration tests reference stale agent symbols**
-   - `tests/integration/test_agent.py` and
-     `tests/integration/test_agent_engine_app.py` import `root_agent` from
-     `app.agent`, but `root_agent` is no longer defined in the current A2A-first
-     implementation.
-   - Impact: Tests target an outdated architecture and do not exercise the current
-     code paths.
+2. **Current-architecture integration tests**
+   - `tests/integration/test_agent.py` validates that `get_app()` resolves to an
+     `A2aAgent`.
+   - `tests/integration/test_agent_engine_app.py` validates feedback and operation
+     registration without depending on stale `root_agent` symbols.
 
-3. **`test_a2a.py` does not test real A2A transport**
-   - The test defines an inline `o11y_agent` Python function and wires it directly
-     as a tool, rather than invoking `make_a2a_wrapper()` and validating JSON-RPC
-     or Reasoning Engine REST behavior.
-   - Impact: Passing results do not prove A2A communication works.
+3. **Transport-level A2A wrapper validation**
+   - `tests/integration/test_a2a.py` now exercises both wrapper branches:
+     - local A2A (`A2AClient` flow),
+     - remote Reasoning Engine REST (`message:send` + task polling flow),
+     using deterministic mocks.
 
-4. **Local A2A mode is effectively static at import-time**
-   - `LOCAL_A2A` is computed once in `app_utils/config.py` and imported as a module
-     constant in `app/agent.py`.
-   - Impact: Runtime `monkeypatch.setenv("LOCAL_A2A", ...)` in tests may not change
-     behavior unless modules are reloaded in a controlled way.
+4. **Runtime `LOCAL_A2A` evaluation**
+   - The wrapper checks `config.is_local_a2a()` at call time.
+   - Tests can switch behavior with environment variables plus module reload.
 
-5. **Hardcoded local `.env` path in `sre-helper/app/a2a_server.py`**
-   - The file requires `/Users/summitt/work/autosre/.env`.
-   - Impact: Running in CI/containers fails before app startup, blocking local A2A
-     smoke testing.
-
-To make Agent Engine A2A testing meaningful, align tests with the current
-`A2aAgent` architecture, remove stale symbol imports, and validate both local
-(`A2AClient`) and remote (`message:send` + task polling) paths with deterministic
-HTTP mocks.
+5. **Portable local server bootstrap**
+   - `sre-helper/app/a2a_server.py` no longer depends on a developer-specific
+     absolute `.env` path and uses regular `load_dotenv()`.

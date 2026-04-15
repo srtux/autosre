@@ -12,84 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import google.adk.agents
-import google.adk.tools
 import pytest
-from google.adk.agents.run_config import RunConfig, StreamingMode
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.adk.tools.base_tool import BaseTool
-from google.genai import types
 
 
-class DummyRemoteA2aAgent:
-    def __init__(self, **kwargs):
-        pass
+def test_get_app_returns_a2a_app() -> None:
+    """Ensure app exports stay compatible with Agent Engine wrappers."""
+    pytest.importorskip("a2a")
+    pytest.importorskip("vertexai")
 
+    from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent
 
-class DummyGoogleAuth:
-    def __init__(self, **kwargs):
-        pass
+    from app.agent import app, get_app
 
-
-google.adk.tools.GoogleAuth = getattr(google.adk.tools, "GoogleAuth", DummyGoogleAuth)
-
-
-class MockToolAgent(BaseTool):
-    def __init__(self, **kwargs):
-        super().__init__(name="o11y_agent", description="Observability Agent")
-
-
-google.adk.agents.RemoteA2aAgent = getattr(
-    google.adk.agents, "RemoteA2aAgent", DummyRemoteA2aAgent
-)
-
-
-@pytest.mark.asyncio
-async def test_agent_stream() -> None:
-    """
-    Integration test for the agent stream functionality.
-    Tests that the agent returns valid streaming responses.
-    """
-    from unittest.mock import patch
-
-    with patch(
-        "google.adk.integrations.agent_registry.AgentRegistry.get_remote_a2a_agent"
-    ) as mock_get_agent:
-        mock_get_agent.return_value = MockToolAgent()
-        import importlib
-
-        import app.agent
-
-        importlib.reload(app.agent)
-        from app.agent import root_agent
-
-    session_service = InMemorySessionService()
-
-    session = session_service.create_session_sync(user_id="test_user", app_name="test")
-    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
-
-    message = types.Content(
-        role="user", parts=[types.Part.from_text(text="Why is the sky blue?")]
-    )
-
-    events = list(
-        runner.run(
-            new_message=message,
-            user_id="test_user",
-            session_id=session.id,
-            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
-        )
-    )
-    assert len(events) > 0, "Expected at least one message"
-
-    has_text_content = False
-    for event in events:
-        if (
-            event.content
-            and event.content.parts
-            and any(part.text for part in event.content.parts)
-        ):
-            has_text_content = True
-            break
-    assert has_text_content, "Expected at least one message with text content"
+    resolved = get_app()
+    assert resolved is app
+    assert isinstance(resolved, A2aAgent)

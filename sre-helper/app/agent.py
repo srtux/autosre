@@ -26,7 +26,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent, create_agent_card
 
-from app.app_utils.config import LOCAL_A2A
+from app.app_utils import config
 
 
 # Get observability delegator from registry as requested by user
@@ -40,7 +40,7 @@ def make_a2a_wrapper():
         import google.auth.transport.requests
         import httpx
 
-        if LOCAL_A2A:
+        if config.is_local_a2a():
             print("Using local A2A client...")
             from a2a.client import A2AClient
             from a2a.client.card_resolver import A2ACardResolver
@@ -248,3 +248,12 @@ app = CustomA2aAgent(
     agent_card=card,
     agent_executor_builder=SreHelperAgentExecutor,
 )
+
+
+def get_app() -> A2aAgent:
+    """Return the exported A2A app.
+
+    Maintains compatibility with Agent Engine wrappers that expect a `get_app()`
+    factory in `app.agent`.
+    """
+    return app

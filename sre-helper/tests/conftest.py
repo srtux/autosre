@@ -1,3 +1,7 @@
-import nest_asyncio
+try:
+    import nest_asyncio
+except ModuleNotFoundError:
+    nest_asyncio = None
 
-nest_asyncio.apply()
+if nest_asyncio is not None:
+    nest_asyncio.apply()

@@ -1,134 +1,115 @@
-# Use importlib to load o11y-agent app without path conflicts and hyphen issues
-import importlib.util
-import os
-from unittest.mock import patch
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import importlib
+import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
-from google.genai import types
-
-# Removed legacy mocks that polluted global state
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-o11y_agent_path = os.path.abspath(
-    os.path.join(current_dir, "../../../o11y-agent/app/agent.py")
-)
-
-spec = importlib.util.spec_from_file_location("o11y_agent_app", o11y_agent_path)
-o11y_agent_module = importlib.util.module_from_spec(spec)
 
 
-def mock_get_mcp_server(self, name):
-    if "logging" in name:
-        return {
-            "displayName": "logging",
-            "mcpServerId": "logging-id",
-            "interfaces": [
-                {
-                    "protocolBinding": "HTTP_JSON",
-                    "url": "https://logging.googleapis.com/mcp",
-                }
-            ],
-        }
-    elif "trace" in name:
-        return {
-            "displayName": "trace",
-            "mcpServerId": "trace-id",
-            "interfaces": [
-                {
-                    "protocolBinding": "HTTP_JSON",
-                    "url": "https://cloudtrace.googleapis.com/mcp",
-                }
-            ],
-        }
-    elif "metrics" in name:
-        return {
-            "displayName": "metrics",
-            "mcpServerId": "metrics-id",
-            "interfaces": [
-                {
-                    "protocolBinding": "HTTP_JSON",
-                    "url": "https://monitoring.googleapis.com/mcp",
-                }
-            ],
-        }
-    return {}
+def test_a2a_wrapper_uses_local_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LOCAL_A2A=True should route through the SDK A2A client path."""
+    pytest.importorskip("a2a")
+    pytest.importorskip("vertexai")
+
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("LOCAL_A2A", "True")
+
+    import app.agent
+
+    importlib.reload(app.agent)
+
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeResolver:
+        def __init__(self, httpx_client, base_url):
+            self.base_url = base_url
+
+        async def get_agent_card(self):
+            return {"name": "o11y"}
+
+    class FakeA2AClient:
+        def __init__(self, httpx_client, agent_card):
+            self.agent_card = agent_card
+
+        async def send_message(self, request):
+            return {"ok": True, "transport": "local", "request_id": request.id}
+
+    monkeypatch.setattr("httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("a2a.client.card_resolver.A2ACardResolver", FakeResolver)
+    monkeypatch.setattr("a2a.client.A2AClient", FakeA2AClient)
+
+    wrapped = app.agent.make_a2a_wrapper()
+    response = asyncio.run(wrapped("check local"))
+    assert "local" in str(response)
 
 
-def mock_mcp_tool():
-    """A mock tool for testing."""
-    return "Mocked response"
+def test_a2a_wrapper_uses_remote_rest_when_local_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LOCAL_A2A=False should route through REST message:send and task polling."""
+    pytest.importorskip("a2a")
+    pytest.importorskip("vertexai")
 
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("LOCAL_A2A", "False")
 
-with (
-    patch(
-        "google.adk.integrations.agent_registry.agent_registry.AgentRegistry.get_mcp_server",
-        mock_get_mcp_server,
-    ),
-    patch(
-        "google.adk.integrations.agent_registry.agent_registry.AgentRegistry.get_mcp_toolset",
-        lambda self, name: mock_mcp_tool,
-    ),
-):
-    spec.loader.exec_module(o11y_agent_module)
+    import app.agent
 
-o11y_app = o11y_agent_module.app
+    importlib.reload(app.agent)
 
+    class DummyCreds:
+        token = "fake-token"
 
-@pytest.mark.asyncio
-async def test_a2a_communication(monkeypatch):
-    monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
-    monkeypatch.setenv("LOCAL_A2A", "TRUE")
+        def refresh(self, request):
+            return None
 
-    from google.adk.agents import Agent
-    from google.adk.models import Gemini
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
+    monkeypatch.setattr("google.auth.default", lambda: (DummyCreds(), "test-project"))
 
-    def o11y_agent(query: str) -> str:
-        return "Mocked observability response from o11y_agent"
+    send_response = AsyncMock()
+    send_response.status_code = 200
+    send_response.json.return_value = {"task": {"id": "task-123"}}
+    send_response.raise_for_status.return_value = None
 
-    root_agent = Agent(
-        name="sre_helper_test",
-        model=Gemini(model="gemini-2.5-flash"),
-        instruction="You are testing.",
-        tools=[o11y_agent],
-    )
+    poll_response = AsyncMock()
+    poll_response.json.return_value = {
+        "status": {"state": "TASK_STATE_COMPLETED"},
+        "history": [{"role": "ROLE_AGENT", "content": [{"text": "remote complete"}]}],
+    }
+    poll_response.raise_for_status.return_value = None
 
-    session_service = InMemorySessionService()
-    session = session_service.create_session_sync(user_id="test_user", app_name="test")
-    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
 
-    message = types.Content(
-        role="user",
-        parts=[types.Part.from_text(text="Investigate incident 123 using o11y_agent.")],
-    )
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
 
-    events = list(
-        runner.run(
-            new_message=message,
-            user_id="test_user",
-            session_id=session.id,
-        )
-    )
+        async def post(self, *args, **kwargs):
+            return send_response
 
-    print(f"Events yielded count: {len(events)}")
-    for e in events:
-        print(f"Event from {e.author}: {e.content}")
-        if hasattr(e, "error_message") and e.error_message:
-            print(f"  Error: {e.error_message}")
+        async def get(self, *args, **kwargs):
+            return poll_response
 
-    # Verify that the observability delegator was called by inspecting events
-    has_call = False
-    for e in events:
-        if e.content and e.content.parts:
-            for p in e.content.parts:
-                if p.function_call and p.function_call.name == "o11y_agent":
-                    has_call = True
-                    break
-            if has_call:
-                break
+    monkeypatch.setattr("httpx.AsyncClient", FakeAsyncClient)
 
-    assert has_call, "The observability delegator was not called"
-
-
-# MCP tests moved to test_mcp.py
+    wrapped = app.agent.make_a2a_wrapper()
+    response = asyncio.run(wrapped("check remote"))
+    assert response == "remote complete"

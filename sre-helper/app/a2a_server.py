@@ -2,15 +2,13 @@ import os
 
 from dotenv import load_dotenv
 
-loaded = load_dotenv(dotenv_path="/Users/summitt/work/autosre/.env")
-if not loaded:
-    raise ValueError("Failed to load .env file from /Users/summitt/work/autosre/.env")
-os.environ["LOCAL_A2A"] = "True"
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+load_dotenv()
+os.environ.setdefault("LOCAL_A2A", "True")
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
 import app.app_utils.config  # noqa: E402
 
-app.app_utils.config.LOCAL_A2A = True
+app.app_utils.config.LOCAL_A2A = app.app_utils.config.is_local_a2a()
 
 from google.adk.a2a.utils.agent_to_a2a import to_a2a  # noqa: E402
 from google.adk.agents import Agent  # noqa: E402
