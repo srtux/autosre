@@ -33,7 +33,7 @@ def agent_app(monkeypatch: pytest.MonkeyPatch):
     mock_client = MagicMock()
     monkeypatch.setattr("google.cloud.logging.Client", lambda: mock_client)
 
-    from app.agent_engine_app import agent_engine
+    from app.agent import app as agent_engine
 
     agent_engine.set_up()
     return agent_engine

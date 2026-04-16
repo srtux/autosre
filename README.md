@@ -40,10 +40,10 @@ uv run adk api_server --a2a --port=8005 ./
 
 #### 3. Run the Integration Test
 
-From the `sre-helper` directory, run the test script that calls the remote agent:
+From the `sre-helper` directory, run the tests:
 
 ```bash
-LOCAL_A2A=True uv run run_a2a_test.py
+PYTHONPATH=app uv run python -m pytest
 ```
 
 ---

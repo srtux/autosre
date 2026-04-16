@@ -48,9 +48,7 @@ uv run run_a2a_test.py
 
 ## How it Works
 
-1.  **Agent Card**: The `o11y-agent/app/agent.json` file defines the Agent Card, specifying the name, version, and the full RPC URL (`http://localhost:8005/a2a/app`).
-2.  **Remote Resolution**: In `sre-helper/app/agent.py`, when `LOCAL_A2A="True"` is set, the agent resolves the child agent using `RemoteA2aAgent` pointing to the local file path of the Agent Card.
-3.  **A2A Protocol**: The `RemoteA2aAgent` handles the HTTP communication with the server on port 8005 following the standard A2A protocol.
+As of the latest refactor, `sre-helper` resolves the `o11y-agent` using the official `AgentRegistry` and `sub_agents` pattern. The previous logic involving `LOCAL_A2A` environment variables and local file resolution of Agent Cards has been removed.
 
 ## Deployment to Agent Engine
 

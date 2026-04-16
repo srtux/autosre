@@ -20,10 +20,10 @@ def test_get_app_returns_a2a_app() -> None:
     pytest.importorskip("a2a")
     pytest.importorskip("vertexai")
 
-    from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent
+    from vertexai.agent_engines.templates.adk import AdkApp
 
     from app.agent import app, get_app
 
     resolved = get_app()
     assert resolved is app
-    assert isinstance(resolved, A2aAgent)
+    assert isinstance(resolved, AdkApp)

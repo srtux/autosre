@@ -60,76 +60,12 @@ When deploying an agent that needs to expose A2A endpoints on Vertex AI:
 *   Use `vertexai.preview.reasoning_engines.templates.a2a.A2aAgent` as the template.
 *   Do **not** wrap the agent in `AdkApp` during deployment, as this can mask the native A2A endpoints.
 
-## 4. Local vs Remote Setup
+## 4. Current A2A Communication Pattern
 
-The system supports both local development and remote production modes, controlled by the `LOCAL_A2A` environment variable.
+As of the latest refactor, A2A communication between `sre-helper` and `o11y-agent` is handled using the official `AgentRegistry` and `sub_agents` pattern provided by the ADK.
 
-### Local Setup
-In local mode, agents communicate via the standard A2A SDK clients over HTTP/JSON-RPC.
+### Implementation Details
+*   **Registry Resolution**: `sre-helper` uses `AgentRegistry(project_id="agent-o11y", location="us-central1")` to resolve the remote agent.
+*   **Sub-Agents**: The resolved agent is added to the `sub_agents` list of the root agent, allowing for direct delegation without custom tool wrappers or manual HTTP calls.
 
-1.  **Start Target Agent (e.g., `o11y-agent`)**:
-    Run the A2A server using Uvicorn:
-    ```bash
-    cd o11y-agent
-    .venv/bin/python -m uvicorn app.a2a_server:a2a_app --host 0.0.0.0 --port 10000
-    ```
-2.  **Configure Calling Agent (e.g., `sre-helper`)**:
-    Set `LOCAL_A2A=True` in the environment. The wrapper will use `A2AClient` to connect to `http://localhost:10000`.
-
-### Remote Setup
-In remote mode, agents communicate via direct REST calls to the Vertex AI Reasoning Engine endpoints.
-
-1.  **Target Agent**: Deployed to Vertex AI Reasoning Engine (exposing `/a2a/v1/...` endpoints).
-2.  **Calling Agent**: Set `LOCAL_A2A=False` (or unset it). The wrapper will use `httpx.AsyncClient` to send POST requests to the Reasoning Engine URL with the strict Protobuf-compliant payload described in Section 1.
-
-## 5. Testing
-
-### Unit and Integration Tests
-Run tests using `pytest` within the respective agent directory.
-
-Example for `sre-helper`:
-```bash
-cd sre-helper
-.venv/bin/python -m pytest tests/integration/test_a2a.py
-```
-*Note: Tests should mock the A2A calls to avoid dependency on running servers or remote endpoints.*
-
-### End-to-End Local Verification
-To verify the actual communication between agents locally:
-1.  Start the `o11y-agent` server on port 10000 (see Local Setup).
-2.  Run the test script in `sre-helper`:
-    ```bash
-    cd sre-helper
-    .venv/bin/python run_a2a_test.py
-    ```
-    This script sets `LOCAL_A2A=True` and sends a query that triggers the `o11y_agent` tool, verifying the full roundtrip.
-
-## 6. Agent Engine A2A Testing Baseline (Updated April 15, 2026)
-
-The `sre-helper` project now includes a minimum viable test baseline aligned with
-the current A2A-first architecture:
-
-1. **Agent Engine compatibility export**
-   - `app.agent` exposes `get_app()` that returns the exported A2A app object.
-   - This keeps `app.agent_engine_app` import-compatible while preserving the
-     `A2aAgent` runtime model.
-
-2. **Current-architecture integration tests**
-   - `tests/integration/test_agent.py` validates that `get_app()` resolves to an
-     `A2aAgent`.
-   - `tests/integration/test_agent_engine_app.py` validates feedback and operation
-     registration without depending on stale `root_agent` symbols.
-
-3. **Transport-level A2A wrapper validation**
-   - `tests/integration/test_a2a.py` now exercises both wrapper branches:
-     - local A2A (`A2AClient` flow),
-     - remote Reasoning Engine REST (`message:send` + task polling flow),
-     using deterministic mocks.
-
-4. **Runtime `LOCAL_A2A` evaluation**
-   - The wrapper checks `config.is_local_a2a()` at call time.
-   - Tests can switch behavior with environment variables plus module reload.
-
-5. **Portable local server bootstrap**
-   - `sre-helper/app/a2a_server.py` no longer depends on a developer-specific
-     absolute `.env` path and uses regular `load_dotenv()`.
+The previous custom wrapper logic and the `LOCAL_A2A` environment variable have been removed to align with the official SDK patterns.

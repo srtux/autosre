@@ -24,12 +24,6 @@ def use_vertex_ai() -> bool:
     return os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "True") == "True"
 
 
-def is_local_a2a() -> bool:
-    """Check if local A2A simulation is enabled."""
-    return os.environ.get("LOCAL_A2A", "False") == "True"
-
-
 PROJECT_ID = get_project_id()
 LOCATION = get_location()
 USE_VERTEXAI = use_vertex_ai()
-LOCAL_A2A = is_local_a2a()
