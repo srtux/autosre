@@ -17,23 +17,34 @@ To ensure that `cloudpickle` preserves the full module path (e.g., `app.agent`),
 3.  Add `temp_dir` to `sys.path` before importing the agent object.
 4.  Perform the deployment using the Vertex AI SDK.
 
-Example implementation in `scripts/deploy.py`:
+Example implementation (see `o11y-agent/deploy.py` and `sre-helper/deployment/deploy.py` for the real scripts):
 ```python
-# Create structured temp dir
-with tempfile.TemporaryDirectory() as temp_dir:
-    app_dir = os.path.join(temp_dir, "app")
-    os.makedirs(app_dir)
-    
-    # Copy source files to recreate package structure
-    # ...
-    
-    # Add temp_dir to path to force correct module resolution
-    sys.path.insert(0, temp_dir)
-    from app import agent
-    
-    # Deploy using the imported agent
-    # ...
+import os
+import shutil
+import sys
+import tempfile
+
+# The staging dir must live OUTSIDE the source tree so we don't recursively
+# copy our own temp dir. tempfile.TemporaryDirectory() gives us that plus
+# guaranteed cleanup.
+with tempfile.TemporaryDirectory() as tmp_dir:
+    # Recreate the `app/` package path so `cloudpickle` sees `app.agent`
+    # rather than a flat module.
+    app_src = os.path.join(os.path.dirname(__file__), "app")
+    shutil.copytree(app_src, os.path.join(tmp_dir, "app"))
+
+    # Force Python to resolve `app` from the staged copy.
+    sys.path.insert(0, tmp_dir)
+    from app import agent  # noqa: E402
+
+    # Deploy using the imported agent object.
+    # client.agent_engines.create(agent=agent.app, config={...})
 ```
+
+Key points:
+*   Use `tempfile.TemporaryDirectory()` — **not** `tempfile.mkdtemp(dir=agent_path)`. Creating the staging dir inside the agent source tree causes `shutil.copytree` to recurse into it.
+*   Copy the `app/` package wholesale with `shutil.copytree` so the module path `app.agent` resolves in the remote container.
+*   Insert the staging dir at the front of `sys.path` **before** importing the agent.
 
 ## 2. IAM Permissions for A2A and MCP Tools
 
@@ -106,11 +117,8 @@ agent.
 ## 4. Current State (April 2026)
 
 ### Active Agents
-*   **`o11y-agent`**: Observability agent with tools for Logging, Tracing, Monitoring, and Error Reporting.
-*   **`sre-helper`**: Orchestrator agent that uses A2A to call specialized agents.
+*   **`o11y-agent`**: A single `OpsAgent` with four MCP toolsets — Logging, Trace, Monitoring, and Error Reporting.
+*   **`sre-helper`**: Orchestrator agent that uses A2A (via `AgentRegistry` + `sub_agents`) to delegate to `o11y-agent`.
 
 ### Deployed Instances
-*   **`o11y-agent`**: Reasoning Engine ID `2769617563565424640`
-*   **`sre-helper`**: Reasoning Engine ID `775930303523848192`
-
-Both agents are currently being redeployed using the "Temp Directory Trick" to resolve module pathing issues. Permissions have been granted to their respective SPIFFE identities.
+Deployed Reasoning Engine IDs are not checked in. Track them per-environment via env vars, the Agent Engine list in the Cloud Console, or `gcloud alpha ai reasoning-engines list`. Both agents are deployed with `identity_type=AGENT_IDENTITY`, and IAM bindings are applied via `scripts/setup_iam.sh` against each engine's SPIFFE principal.

@@ -195,7 +195,6 @@ tests/load_test/.results/*.csv
 my_env.tfvars
 .saved_chats
 .env
-.requirements.txt
 deployment_metadata.json
 
 # A2A Inspector
