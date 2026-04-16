@@ -9,7 +9,7 @@ Welcome to the **AutoSRE** repository. This project implements an experimental m
 The system uses a hierarchical multi-agent architecture powered by Google's ADK (Agent Development Kit) and `gemini-2.5-flash`.
 
 - **`sre-helper/`**: The **Root Orchestrator Agent**. It interacts with the user, gathers incident context, and delegates complex observability tasks to specialized agents.
-- **`o11y-agent/`**: The **Observability Specialist Agent**. It runs as an independent service (using the A2A protocol) and wraps sub-agents specialized in querying logs, traces, and metrics via Model Context Protocol (MCP) servers.
+- **`o11y-agent/`**: The **Observability Specialist Agent**. It runs as an independent A2A service and uses MCP toolsets for logs, traces, metrics, and error reporting.
 - **`docs/`**: Centralized documentation covering architecture, local testing workflows, and query guidelines.
 
 ---
@@ -35,7 +35,7 @@ cd ../o11y-agent && uv sync
 From the `o11y-agent` directory, start the agent server:
 
 ```bash
-uv run adk api_server --a2a --port=8005 ./
+uv run uvicorn app.a2a_server:a2a_app --host 0.0.0.0 --port 10000
 ```
 
 #### 3. Run the Integration Test
@@ -43,7 +43,7 @@ uv run adk api_server --a2a --port=8005 ./
 From the `sre-helper` directory, run the test script that calls the remote agent:
 
 ```bash
-LOCAL_A2A=True uv run run_a2a_test.py
+LOCAL_A2A=True pytest -q tests/integration/test_a2a.py
 ```
 
 ---

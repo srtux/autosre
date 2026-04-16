@@ -17,13 +17,16 @@ uv sync
 ```
 
 #### Environment Variables
-The `o11y-agent` requires the `LOGGING_MCP_SERVER_ID` environment variable to be set. This should point to the full resource name of the MCP server in the Agent Registry.
+For realistic local runs, configure MCP server resource names used by `o11y-agent`.
 
 Example `.env` file content:
 ```env
 GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_CLOUD_LOCATION=us-central1
-LOGGING_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/your-mcp-server-id
+LOGGING_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/logging-server-id
+TRACE_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/trace-server-id
+MONITORING_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/monitoring-server-id
+ERROR_REPORTING_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/error-reporting-server-id
 ```
 
 ### Step 1: Start the Observability Agent Server
@@ -31,26 +34,24 @@ LOGGING_MCP_SERVER_ID=projects/your-project-id/locations/global/mcpServers/your-
 Run the `o11y-agent` as an API server with A2A enabled. From the `o11y-agent` directory:
 
 ```bash
-uv run adk api_server --a2a --port=8005 ./
+uv run uvicorn app.a2a_server:a2a_app --host 0.0.0.0 --port 10000
 ```
-
-This command will scan the current directory, find the `app` folder (which contains `agent.json`), and mount the A2A endpoints at `/a2a/app`.
 
 ### Step 2: Run the SRE Helper Test
 
 We use a clean test script in `sre-helper` that does not use mocks and calls the remote agent via the A2A protocol.
 
-From the `sre-helper` directory:
+From the `sre-helper` directory (example integration test):
 
 ```bash
-uv run run_a2a_test.py
+pytest -q tests/integration/test_a2a.py
 ```
 
 ## How it Works
 
-1.  **Agent Card**: The `o11y-agent/app/agent.json` file defines the Agent Card, specifying the name, version, and the full RPC URL (`http://localhost:8005/a2a/app`).
-2.  **Remote Resolution**: In `sre-helper/app/agent.py`, when `LOCAL_A2A="True"` is set, the agent resolves the child agent using `RemoteA2aAgent` pointing to the local file path of the Agent Card.
-3.  **A2A Protocol**: The `RemoteA2aAgent` handles the HTTP communication with the server on port 8005 following the standard A2A protocol.
+1.  Set `LOCAL_A2A=True` for `sre-helper`.
+2.  `sre-helper` calls `http://localhost:10000` via `A2ACardResolver`/`A2AClient`.
+3.  The local o11y server handles A2A requests and returns observations to the orchestrator.
 
 ## Deployment to Agent Engine
 
@@ -96,4 +97,3 @@ You can also run it on `o11y-agent`:
 cd o11y-agent
 uvx ruff check .
 ```
-

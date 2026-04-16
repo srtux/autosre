@@ -2,10 +2,15 @@ import importlib.util
 import os
 from unittest.mock import patch
 
+import pytest
+
+google = pytest.importorskip("google")
+pytest.importorskip("google.adk.a2a.utils")
+pytest.importorskip("google.adk.agents")
+pytest.importorskip("google.adk.tools")
 import google.adk.a2a.utils
 import google.adk.agents
 import google.adk.tools
-import pytest
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:MCPTool class is deprecated:DeprecationWarning"

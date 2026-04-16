@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
@@ -27,6 +29,34 @@ from google.genai import types
 from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent, create_agent_card
 
 from app_utils import config
+
+_LOCAL_O11Y_A2A_BASE_URL = os.environ.get("LOCAL_O11Y_A2A_BASE_URL", "http://localhost:10000")
+_REMOTE_O11Y_A2A_SEND_URL = os.environ.get(
+    "REMOTE_O11Y_A2A_SEND_URL",
+    (
+        "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/"
+        "agent-o11y/locations/us-central1/reasoningEngines/"
+        "2769617563565424640/a2a/v1/message:send"
+    ),
+)
+_A2A_POLL_TIMEOUT_SECONDS = int(os.environ.get("O11Y_A2A_POLL_TIMEOUT_SECONDS", "30"))
+
+
+def _extract_text_from_a2a_payload(payload: dict) -> str:
+    """Extract plain text from common A2A payload shapes."""
+    history = payload.get("history", [])
+    for message in reversed(history):
+        if message.get("role") in {"ROLE_AGENT", "agent"}:
+            content = message.get("content", [])
+            texts = [part["text"] for part in content if "text" in part]
+            if texts:
+                return "\n".join(texts)
+
+    for key in ("result", "message", "task"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return str(payload)
 
 
 # Get observability delegator from registry as requested by user
@@ -49,7 +79,7 @@ def make_a2a_wrapper():
             async with httpx.AsyncClient() as httpx_client:
                 resolver = A2ACardResolver(
                     httpx_client=httpx_client,
-                    base_url="http://localhost:10000",
+                    base_url=_LOCAL_O11Y_A2A_BASE_URL,
                 )
                 agent_card = await resolver.get_agent_card()
                 client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
@@ -67,10 +97,12 @@ def make_a2a_wrapper():
                     params=MessageSendParams(**send_message_payload),
                 )
                 response = await client.send_message(request)
+                if hasattr(response, "model_dump"):
+                    return _extract_text_from_a2a_payload(response.model_dump())
                 return str(response)
 
         else:
-            url = "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/agent-o11y/locations/us-central1/reasoningEngines/2769617563565424640/a2a/v1/message:send"
+            url = _REMOTE_O11Y_A2A_SEND_URL
             print(f"Calling remote agent A2A URL: {url}")
 
             # Get auth headers
@@ -107,7 +139,7 @@ def make_a2a_wrapper():
 
                 # Polling loop
                 task_url = url.replace("message:send", f"tasks/{task_id}")
-                for _ in range(30):  # Poll for 30 seconds max
+                for _ in range(_A2A_POLL_TIMEOUT_SECONDS):
                     task_response = await client.get(task_url, headers=headers)
                     task_response.raise_for_status()
                     task_data = task_response.json()
@@ -116,18 +148,7 @@ def make_a2a_wrapper():
                     print(f"Task state: {state}")
 
                     if state == "TASK_STATE_COMPLETED":
-                        # Extract result from history
-                        history = task_data.get("history", [])
-                        for msg in reversed(history):
-                            if (
-                                msg.get("role") == "ROLE_AGENT"
-                                or msg.get("role") == "agent"
-                            ):
-                                content = msg.get("content", [])
-                                texts = [p["text"] for p in content if "text" in p]
-                                if texts:
-                                    return "\n".join(texts)
-                        return str(task_data)
+                        return _extract_text_from_a2a_payload(task_data)
                     elif state == "TASK_STATE_FAILED":
                         return f"Task failed: {task_data}"
 

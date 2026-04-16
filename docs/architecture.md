@@ -1,10 +1,10 @@
 # System Architecture
 
-This document describes the architecture of the AutoSRE system, which consists of a root agent orchestrating specialist observability agents.
+This document describes the architecture of the AutoSRE system, which consists of a root orchestrator and an observability specialist agent connected over A2A.
 
 ## Overview
 
-The system is designed to assist Site Reliability Engineers (SREs) in investigating incidents. It uses a multi-agent approach where a central orchestrator delegates tasks to specialized agents that have access to specific observability data sources via Model Context Protocol (MCP) servers.
+The system is designed to assist Site Reliability Engineers (SREs) in investigating incidents. It uses a multi-agent approach where a central orchestrator delegates observability investigations to a specialist agent with MCP-backed tools.
 
 ## Component Diagram
 
@@ -13,25 +13,16 @@ The following diagram illustrates the relationship between the agents and the MC
 ```mermaid
 graph TD
     User([User]) --> SREHelper[sre-helper Root Agent]
-    SREHelper -->|Delegates to| O11yAgent[o11y-agent ParallelAgent]
-    
-    subgraph O11yAgent [Observability Agent]
-        LoggingAgent[Logging Agent]
-        TraceAgent[Trace Agent]
-        MetricsAgent[Metrics Agent]
-    end
-    
-    O11yAgent -.-> LoggingAgent
-    O11yAgent -.-> TraceAgent
-    O11yAgent -.-> MetricsAgent
-    
-    LoggingAgent -->|Uses| LoggingMCP[logging-mcp-server]
-    TraceAgent -->|Uses| TraceMCP[trace-mcp-server]
-    MetricsAgent -->|Uses| MetricsMCP[metrics-mcp-server]
-    
+    SREHelper -->|Delegates to| O11yAgent[o11y-agent A2A Agent]
+    O11yAgent -->|Uses MCP tools| LoggingMCP[logging-mcp-server]
+    O11yAgent -->|Uses MCP tools| TraceMCP[trace-mcp-server]
+    O11yAgent -->|Uses MCP tools| MonitoringMCP[monitoring-mcp-server]
+    O11yAgent -->|Uses MCP tools| ErrorMCP[error-reporting-mcp-server]
+
     LoggingMCP -->|Queries| GCP_Logging[(Cloud Logging)]
     TraceMCP -->|Queries| GCP_Trace[(Cloud Trace)]
-    MetricsMCP -->|Queries| GCP_Metrics[(Cloud Monitoring)]
+    MonitoringMCP -->|Queries| GCP_Metrics[(Cloud Monitoring)]
+    ErrorMCP -->|Queries| GCP_Error[(Error Reporting)]
 ```
 
 ## Components
@@ -45,30 +36,22 @@ graph TD
 ### 2. Observability Agent (o11y-agent)
 - **File**: `o11y-agent/app/agent.py`
 - **Role**: Specialist agent for observability tasks.
-- **Type**: `App` wrapping an `Agent`
-- **Function**: Exposed as an A2A (Agent-to-Agent) server. It currently serves the **Logging Agent** directly to satisfy Vertex AI Reasoning Engine deployment expectations.
-  > [!NOTE]
-  > In the current implementation, this agent directly exposes the **Logging Agent** as the root of the app to avoid attribute validation failures (like missing `plugins` or `resumability_config`) observed when using `ParallelAgent` or raw agents without the `App` wrapper.
+- **Type**: `A2aAgent` with an ADK `Agent` executor.
+- **Function**: Exposed as an A2A (Agent-to-Agent) service. It builds a single `OpsAgent` with toolsets for logs, traces, metrics, and error reporting.
 
-### 3. Specialist Agents
-All specialist agents use `gemini-2.5-flash`.
-
-- **Logging Agent**: Specialized in analyzing logs. Uses `logging-mcp-server`.
-- **Trace Agent**: Specialized in analyzing traces. Uses `trace-mcp-server`.
-- **Metrics Agent**: Specialized in analyzing metrics. Uses `metrics-mcp-server`.
-
-### 4. MCP Servers
+### 3. MCP Servers
 These servers provide tools for the agents to interact with Google Cloud services.
 - **logging-mcp-server**: Tools for querying Cloud Logging.
 - **trace-mcp-server**: Tools for querying Cloud Trace.
-- **metrics-mcp-server**: Tools for querying Cloud Monitoring.
+- **monitoring-mcp-server**: Tools for querying Cloud Monitoring.
+- **error-reporting-mcp-server**: Tools for querying Error Reporting.
 
 ## Data Flow
 
 1. The user interacts with the `sre-helper` agent describing an incident.
 2. `sre-helper` identifies that it needs observability data and calls the `o11y-agent` (retrieved via `AgentRegistry`).
-3. `o11y-agent` orchestrates the request among its sub-agents (Logging, Trace, Metrics).
-4. Each sub-agent uses its specific MCP tool to query Google Cloud.
+3. `o11y-agent` runs the `OpsAgent` and selects relevant MCP tools.
+4. MCP tools query Google Cloud observability systems.
 5. The results are aggregated and returned back to `sre-helper`, which then provides a consolidated response to the user.
 
 ## Security & Permissions
