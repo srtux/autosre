@@ -1,161 +1,121 @@
-import vertexai
-from vertexai import types
+"""Deployment script for the o11y-agent to Vertex AI Agent Engine.
+
+Usage::
+
+    uv run python deploy.py               # create / deploy
+    uv run python deploy.py --delete ID   # delete a deployed resource
+
+Environment variables (required unless noted):
+
+* ``GOOGLE_CLOUD_PROJECT`` - target project id.
+* ``GOOGLE_CLOUD_STORAGE_BUCKET`` - staging bucket name (no ``gs://`` prefix).
+* ``GOOGLE_CLOUD_LOCATION`` - optional; defaults to ``us-central1``.
+
+This script follows the "Temp Directory Trick" from
+``docs/deployment_patterns.md`` section 1: it stages a copy of the ``app/``
+package into a temporary directory *outside* the project directory so that
+``cloudpickle`` preserves the full ``app.*`` module path in the deployed
+artifact and ``shutil.copytree`` cannot recurse into its own destination.
+"""
+
 import os
-import sys
 import shutil
+import sys
 import tempfile
 
-# Initialize the Vertex AI client with v1beta1 API for agent identity support
-PROJECT_ID = "agent-o11y"
-LOCATION = "us-central1"
-BUCKET_NAME = "agent-o11y_cloudbuild"
+import vertexai
+from dotenv import load_dotenv
+from vertexai import types
 
-client = vertexai.Client(
-  project=PROJECT_ID,
-  location=LOCATION,
-  http_options=dict(api_version="v1beta1")
-)
 
-from vertexai._genai._agent_engines_utils import ModuleAgent, _generate_class_methods_spec_or_raise, _to_dict
+def _require_env(name: str) -> str:
+    v = os.environ.get(name)
+    if not v:
+        raise RuntimeError(f"Environment variable {name} is required")
+    return v
 
-# Assume running from the o11y-agent directory
-agent_path = os.path.abspath(".")
-agent_name = os.path.basename(agent_path)
 
-print(f"Deploying {agent_name} with Agent Identity...")
+def main() -> None:
+    load_dotenv()
 
-# Add the agent directory and app directory to sys.path to import its app
-sys.path.insert(0, agent_path)
-sys.path.insert(0, os.path.join(agent_path, "app"))
+    project_id = _require_env("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+    bucket = _require_env("GOOGLE_CLOUD_STORAGE_BUCKET")
 
-print(f"Importing app from app/agent.py ...")
-try:
-    from app.agent import app as agent_app
-except ImportError as e:
-    print(f"Failed to import app from app/agent.py: {e}")
-    sys.exit(1)
+    print(f"PROJECT: {project_id}\nLOCATION: {location}\nBUCKET: {bucket}")
 
-# Define operations for AdkApp
-operations = {
-    "": ["get_session", "list_sessions", "create_session", "delete_session"],
-    "async": ["async_get_session", "async_list_sessions", "async_create_session", "async_delete_session", "async_add_session_to_memory", "async_search_memory"],
-    "stream": ["stream_query"],
-    "async_stream": ["async_stream_query", "streaming_agent_run_with_events"],
-}
-
-print(f"Using operations for {agent_name}: {operations}")
-
-requirements = [
-  "--extra-index-url https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/",
-  "google-cloud-aiplatform[adk,agent_engines]",
-  "a2a-sdk>=0.3.26,<0.4",
-  "pydantic",
-  "cloudpickle",
-  "requests",
-  "httpx",
-  "httpx-sse",
-  "google-cloud-iamconnectorcredentials",
-]
-
-# Create a temp dir to package source code inside the project directory
-tmp_dir = tempfile.mkdtemp(dir=agent_path)
-print(f"Created temp dir {tmp_dir} for packaging source code.")
-
-# Copy files from app directory directly to temp dir (FLAT structure)
-app_src = os.path.join(agent_path, "app")
-if os.path.exists(app_src):
-    for item in os.listdir(app_src):
-        s = os.path.join(app_src, item)
-        d = os.path.join(tmp_dir, item)
-        if os.path.isdir(s):
-            shutil.copytree(s, d)
-        else:
-            shutil.copy2(s, d)
-    print(f"Copied contents of {app_src} to {tmp_dir}")
-else:
-    print(f"Warning: {app_src} does not exist!")
-    sys.exit(1)
-
-# Create sitecustomize.py directly in temp dir
-sitecustomize_path = os.path.join(tmp_dir, "sitecustomize.py")
-with open(sitecustomize_path, "w") as f:
-    f.write("""import sys
-import os
-print(f"SITE_CUSTOMIZE: CWD={os.getcwd()}")
-print(f"SITE_CUSTOMIZE: sys.path={sys.path}")
-print(f"SITE_CUSTOMIZE: __file__={__file__}")
-sys.path.insert(0, os.path.dirname(__file__))
-""")
-print(f"Created {sitecustomize_path}")
-
-# Create agent_engine_app.py directly in temp dir
-engine_app_path = os.path.join(tmp_dir, "agent_engine_app.py")
-with open(engine_app_path, "w") as f:
-    f.write("""from agent import app as agent_app
-from vertexai.agent_engines import AdkApp
-
-app = AdkApp(agent=agent_app)
-app.name = "o11y_agent"
-""")
-print(f"Created {engine_app_path} with flat import and correct app name.")
-
-# Write requirements.txt to the temp directory
-requirements_path = os.path.join(tmp_dir, "requirements.txt")
-with open(requirements_path, "w") as f:
-    for req in requirements:
-        f.write(req + "\n")
-print(f"Created requirements.txt at {requirements_path}")
-
-# Use ModuleAgent to generate class_methods locally
-# We must add tmp_dir to sys.path so it can find agent_engine_app
-sys.path.insert(0, tmp_dir)
-
-# Clean up sys.modules to avoid conflicts with previously loaded app
-to_delete = [name for name in sys.modules if name == "app" or name.startswith("app.")]
-for name in to_delete:
-    del sys.modules[name]
-
-module_agent = ModuleAgent(
-    module_name="agent_engine_app",
-    agent_name="app",
-    register_operations=operations,
-    sys_paths=["."], 
-)
-
-# Generate class methods spec
-try:
-    class_methods_proto = _generate_class_methods_spec_or_raise(
-        agent=module_agent,
-        operations=operations,
+    client = vertexai.Client(
+        project=project_id,
+        location=location,
+        http_options=dict(api_version="v1beta1"),
     )
-    class_methods = [_to_dict(spec) for spec in class_methods_proto]
-    print(f"Generated {len(class_methods)} class methods.")
-except Exception as e:
-    print(f"Failed to generate class methods: {e}")
-    shutil.rmtree(tmp_dir)
-    sys.exit(1)
-finally:
-    # Remove tmp_dir from sys.path to avoid side effects
-    sys.path.remove(tmp_dir)
 
-# Deploy the agent with Agent Identity using Mode B (Entrypoint)
-try:
-    remote_app = client.agent_engines.create(
-      config={
-        "display_name": f"{agent_name}-with-identity",
-        "identity_type": types.IdentityType.AGENT_IDENTITY,
-        "source_packages": [tmp_dir, requirements_path],
-        "entrypoint_module": "agent_engine_app",
-        "entrypoint_object": "app",
-        "class_methods": class_methods,
-        "staging_bucket": f"gs://{BUCKET_NAME}",
-      },
-    )
-finally:
-    # Clean up temp dir
-    shutil.rmtree(tmp_dir)
-    print(f"Cleaned up temp dir {tmp_dir}")
+    agent_path = os.path.abspath(os.path.dirname(__file__))
 
-print(f"Deployment successful for {agent_name}!")
-print(f"Agent Engine ID: {remote_app.api_resource.name}")
-print(f"Effective Identity: {remote_app.api_resource.spec.effective_identity}")
+    # Use tempfile.TemporaryDirectory OUTSIDE agent_path so shutil.copytree
+    # cannot recurse into its own destination.
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Recreate the app/ package structure per deployment_patterns.md §1
+        app_dst = os.path.join(tmp_dir, "app")
+        app_src = os.path.join(agent_path, "app")
+        shutil.copytree(app_src, app_dst)
+
+        # Write requirements.txt into tmp_dir (kept in sync with
+        # requirements.txt / pyproject.toml in the project root).
+        requirements = [
+            "google-cloud-aiplatform[adk,agent_engines]",
+            "google-adk>=1.30.0",
+            "a2a-sdk>=0.3.26",
+            "pydantic",
+            "cloudpickle",
+            "python-dotenv",
+            "google-cloud-logging",
+            "google-cloud-iamconnectorcredentials",
+            "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
+        ]
+        requirements_path = os.path.join(tmp_dir, "requirements.txt")
+        with open(requirements_path, "w") as f:
+            f.write("\n".join(requirements) + "\n")
+
+        # Put tmp_dir on sys.path so cloudpickle resolves `app.*` to the
+        # staged copy (not the in-tree one) and clear any stale imports.
+        sys.path.insert(0, tmp_dir)
+        for m in [m for m in sys.modules if m == "app" or m.startswith("app.")]:
+            del sys.modules[m]
+
+        from app.agent_engine_app import get_app
+
+        app = get_app()
+
+        print("Deploying o11y-agent with Agent Identity...")
+        remote_app = client.agent_engines.create(
+            agent=app,
+            config={
+                "display_name": "o11y-agent",
+                "identity_type": types.IdentityType.AGENT_IDENTITY,
+                "staging_bucket": f"gs://{bucket}",
+                "requirements": requirements,
+                "extra_packages": [os.path.join(tmp_dir, "app")],
+            },
+        )
+        print(f"Deployment successful. Engine ID: {remote_app.api_resource.name}")
+
+
+def _delete(resource_id: str) -> None:
+    from vertexai import agent_engines
+
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+    vertexai.init(project=project_id, location=location)
+    agent_engines.get(resource_id).delete(force=True)
+    print(f"Deleted: {resource_id}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--delete":
+        if len(sys.argv) < 3:
+            print("Usage: python deploy.py --delete <resource_id>")
+            sys.exit(1)
+        _delete(sys.argv[2])
+    else:
+        main()

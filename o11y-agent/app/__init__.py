@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .agent import app
-
-__all__ = ["app"]
+# Intentionally empty. Importing from ``app.agent`` or
+# ``app.agent_engine_app`` triggers lazy builders there; we keep
+# ``app/__init__.py`` free of imports so cold-start stays side-effect free
+# per ``docs/deployment_patterns.md`` §3.

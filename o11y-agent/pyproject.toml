@@ -7,13 +7,14 @@ dependencies = [
     "google-adk>=1.30.0",
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
     "google-cloud-aiplatform[agent-engines]>=1.130.0",
+    "google-cloud-logging",
     "a2a-sdk>=0.3.26",
     "python-dotenv>=1.0.0",
     "google-cloud-iamconnectorcredentials",
     "pydantic",
     "cloudpickle",
 ]
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 
 [build-system]
 requires = ["hatchling"]

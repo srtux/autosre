@@ -1,11 +1,19 @@
 {
   "name": "o11y_agent",
   "description": "Observability Agent for SRE",
-  "url": "http://localhost:8005/a2a/app",
+  "url": "http://localhost:10000/a2a/app",
   "transport": "HTTP_JSON",
   "version": "1.0.0",
   "capabilities": {},
-  "defaultInputModes": [],
-  "defaultOutputModes": [],
-  "skills": []
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [
+    {
+      "id": "investigate_logs",
+      "name": "Investigate Logs",
+      "description": "Query and analyze logs using Logging Query Language",
+      "tags": ["logging", "observability"],
+      "examples": ["Show me errors for resource.type=gce_instance"]
+    }
+  ]
 }

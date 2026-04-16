@@ -1,4 +1,6 @@
+import logging
 import os
+import threading
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -15,6 +17,8 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from vertexai.preview.reasoning_engines.templates.a2a import A2aAgent, create_agent_card
+
+logger = logging.getLogger(__name__)
 
 # load_dotenv is safe at import time: it only reads a file if one exists and
 # never touches the network. Anything that hits auth, the registry, or the
@@ -45,6 +49,7 @@ _DEFAULT_ERROR_REPORTING_MCP_SERVER = (
 
 
 _ops_agent: Agent | None = None
+_ops_agent_lock = threading.Lock()
 
 
 def _resolve_project_id() -> str:
@@ -81,51 +86,59 @@ def get_ops_agent() -> Agent:
     if _ops_agent is not None:
         return _ops_agent
 
-    project_id = _resolve_project_id()
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
-    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+    with _ops_agent_lock:
+        # Double-checked locking: another thread may have built the agent
+        # while we were waiting on the lock.
+        if _ops_agent is not None:
+            return _ops_agent
 
-    registry = AgentRegistry(project_id=project_id, location="global")
+        project_id = _resolve_project_id()
+        os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
+        os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
-    logging_mcp_server = os.environ.get(
-        "LOGGING_MCP_SERVER_ID", _DEFAULT_LOGGING_MCP_SERVER
-    )
-    trace_mcp_server = os.environ.get(
-        "TRACE_MCP_SERVER_ID", _DEFAULT_TRACE_MCP_SERVER
-    )
-    monitoring_mcp_server = os.environ.get(
-        "MONITORING_MCP_SERVER_ID", _DEFAULT_MONITORING_MCP_SERVER
-    )
-    error_reporting_mcp_server = os.environ.get(
-        "ERROR_REPORTING_MCP_SERVER_ID", _DEFAULT_ERROR_REPORTING_MCP_SERVER
-    )
+        registry = AgentRegistry(project_id=project_id, location="global")
 
-    print(
-        "Initializing logging agent with MCP servers: "
-        f"{logging_mcp_server}, {trace_mcp_server}, "
-        f"{monitoring_mcp_server}, {error_reporting_mcp_server}"
-    )
+        logging_mcp_server = os.environ.get(
+            "LOGGING_MCP_SERVER_ID", _DEFAULT_LOGGING_MCP_SERVER
+        )
+        trace_mcp_server = os.environ.get(
+            "TRACE_MCP_SERVER_ID", _DEFAULT_TRACE_MCP_SERVER
+        )
+        monitoring_mcp_server = os.environ.get(
+            "MONITORING_MCP_SERVER_ID", _DEFAULT_MONITORING_MCP_SERVER
+        )
+        error_reporting_mcp_server = os.environ.get(
+            "ERROR_REPORTING_MCP_SERVER_ID", _DEFAULT_ERROR_REPORTING_MCP_SERVER
+        )
 
-    _ops_agent = Agent(
-        name="OpsAgent",
-        model=Gemini(
-            model="gemini-2.5-flash",
-            retry_options=types.HttpRetryOptions(attempts=3),
-        ),
-        instruction="""
-        You are a specialist in observability (logs, traces, metrics, and error reports). Use your tools to investigate production issues.
-        You can query logs, view traces, check metrics, and list error reports.
-        When querying logs using the MCP, use the Logging Query Language. Remember that Boolean operators (AND, OR, NOT) must be capitalized.
-        You can filter by fields like resource.type, severity, and textPayload. Example: `resource.type=\"gce_instance\" AND severity>=ERROR`.
-        """,
-        tools=[
-            registry.get_mcp_toolset(logging_mcp_server),
-            registry.get_mcp_toolset(trace_mcp_server),
-            registry.get_mcp_toolset(monitoring_mcp_server),
-            registry.get_mcp_toolset(error_reporting_mcp_server),
-        ],
-    )
-    return _ops_agent
+        logger.info(
+            "Initializing OpsAgent with MCP servers: %s, %s, %s, %s",
+            logging_mcp_server,
+            trace_mcp_server,
+            monitoring_mcp_server,
+            error_reporting_mcp_server,
+        )
+
+        _ops_agent = Agent(
+            name="OpsAgent",
+            model=Gemini(
+                model="gemini-2.5-flash",
+                retry_options=types.HttpRetryOptions(attempts=3),
+            ),
+            instruction="""
+            You are a specialist in observability (logs, traces, metrics, and error reports). Use your tools to investigate production issues.
+            You can query logs, view traces, check metrics, and list error reports.
+            When querying logs using the MCP, use the Logging Query Language. Remember that Boolean operators (AND, OR, NOT) must be capitalized.
+            You can filter by fields like resource.type, severity, and textPayload. Example: `resource.type=\"gce_instance\" AND severity>=ERROR`.
+            """,
+            tools=[
+                registry.get_mcp_toolset(logging_mcp_server),
+                registry.get_mcp_toolset(trace_mcp_server),
+                registry.get_mcp_toolset(monitoring_mcp_server),
+                registry.get_mcp_toolset(error_reporting_mcp_server),
+            ],
+        )
+        return _ops_agent
 
 
 class O11yAgentExecutor(AgentExecutor):
@@ -191,7 +204,7 @@ class O11yAgentExecutor(AgentExecutor):
                 role="user", parts=[types.Part.from_text(text=query)]
             )
 
-            print(f"Executing O11y Agent with query: {query}")
+            logger.info("Executing O11y Agent with query: %s", query)
 
             response_text = ""
             async for event in runner.run_async(
@@ -216,18 +229,31 @@ class O11yAgentExecutor(AgentExecutor):
 
             await updater.complete()
 
-        except Exception as e:
+        except Exception:
+            logger.exception("O11y Agent execute failed")
             await updater.update_status(
                 TaskState.failed,
-                new_agent_text_message(f"Error: {e!s}", task.context_id, task.id),
+                new_agent_text_message(
+                    "Error: O11y Agent execute failed. See agent logs for traceback.",
+                    task.context_id,
+                    task.id,
+                ),
                 final=True,
             )
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        pass
+        task_id = getattr(context.current_task, "id", "unknown")
+        logger.info("Cancel requested for task %s", task_id)
+        if context.current_task:
+            updater = TaskUpdater(
+                event_queue,
+                context.current_task.id,
+                context.current_task.context_id,
+            )
+            await updater.update_status(TaskState.cancelled, final=True)
 
 
-# Define skills
+# Define skills (pure data; safe at import time).
 skill = AgentSkill(
     id="investigate_logs",
     name="Investigate Logs",
@@ -236,15 +262,21 @@ skill = AgentSkill(
     examples=["Show me errors for resource.type=gce_instance"],
 )
 
-# Create agent card
-card = create_agent_card(
-    agent_name="o11y_agent",
-    description="Agent for investigating logs and observability data",
-    skills=[skill],
-)
 
-# Instantiate A2aAgent
-app = A2aAgent(
-    agent_card=card,
-    agent_executor_builder=O11yAgentExecutor,
-)
+def build_a2a_app() -> A2aAgent:
+    """Build the A2A-wrapped app.
+
+    ``A2aAgent.__init__`` reaches into ``vertexai.init`` state, which would
+    fail at cold-start on a container without a project configured. Keep the
+    call lazy so module import stays side-effect free (see
+    ``docs/deployment_patterns.md`` §3).
+    """
+    card = create_agent_card(
+        agent_name="o11y_agent",
+        description="Agent for investigating logs and observability data",
+        skills=[skill],
+    )
+    return A2aAgent(
+        agent_card=card,
+        agent_executor_builder=O11yAgentExecutor,
+    )

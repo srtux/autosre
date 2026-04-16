@@ -13,7 +13,7 @@ class Feedback(BaseModel):
     """Represents feedback for a conversation."""
 
     score: int | float
-    text: str | None = ""
+    text: str | None = None
     log_type: Literal["feedback"] = "feedback"
     service_name: Literal["sre-helper"] = "sre-helper"
     user_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

@@ -65,7 +65,25 @@ When deploying an agent that needs to expose A2A endpoints on Vertex AI:
 As of the latest refactor, A2A communication between `sre-helper` and `o11y-agent` is handled using the official `AgentRegistry` and `sub_agents` pattern provided by the ADK.
 
 ### Implementation Details
-*   **Registry Resolution**: `sre-helper` uses `AgentRegistry(project_id="agent-o11y", location="us-central1")` to resolve the remote agent.
-*   **Sub-Agents**: The resolved agent is added to the `sub_agents` list of the root agent, allowing for direct delegation without custom tool wrappers or manual HTTP calls.
+*   **Registry Resolution**: `sre-helper` uses `AgentRegistry` (project and location from env vars) to resolve the remote `o11y-agent`.
+*   **Sub-Agents**: The resolved agent is added to the `sub_agents` list of the root orchestrator, allowing for direct delegation without custom tool wrappers or manual HTTP calls.
 
 The previous custom wrapper logic and the `LOCAL_A2A` environment variable have been removed to align with the official SDK patterns.
+
+## 5. Local Testing
+
+Locally, start the `o11y-agent` A2A server and run the orchestrator's integration suite:
+
+```bash
+# From o11y-agent/
+uv run uvicorn app.a2a_server:a2a_app_factory --factory --port 10000
+
+# From sre-helper/
+uv run pytest tests/integration -q
+```
+
+There is no standalone `run_a2a_test.py` script — tests live under `tests/integration/` and are driven by `pytest`.
+
+---
+
+*Updated April 16, 2026.*

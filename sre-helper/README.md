@@ -1,63 +1,57 @@
 # sre-helper
 
+Orchestrator root agent for AutoSRE. Built on Google ADK and uses A2A to
+delegate observability investigation to `o11y-agent`.
+
 ## Requirements
 
-Before you begin, ensure you have:
-- **uv**: Python package manager (used for all dependency management in this project) - [Install](https://docs.astral.sh/uv/getting-started/installation/) ([add packages](https://docs.astral.sh/uv/concepts/dependencies/) with `uv add <package>`)
-- **agents-cli**: ADK development CLI - Install with `uv tool install agents-cli`
-- **Google Cloud SDK**: For GCP services - [Install](https://cloud.google.com/sdk/docs/install)
-
+- **uv**: Python package manager — [install](https://docs.astral.sh/uv/getting-started/installation/)
+- **Google Cloud SDK** with application default credentials configured
+- `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_STORAGE_BUCKET` env vars for deployment
 
 ## Quick Start
 
-Install required packages and launch the local development environment:
+Install dependencies:
 
 ```bash
-agents-cli install && agents-cli dev
+uv sync
 ```
 
-## Commands
+Start the downstream `o11y-agent` in a separate terminal (see
+[`../o11y-agent/README.md`](../o11y-agent/README.md) for details — it listens
+on port `10000` by default).
 
-| Command              | Description                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `agents-cli install` | Install dependencies using uv                                                         |
-| `agents-cli dev`     | Launch local development environment                                                  |
-| `agents-cli lint`    | Run code quality checks                                                               |
-| `agents-cli test`     | Run unit and integration tests                                                        |
-| `agents-cli deploy`  | Deploy agent to Agent Engine                                                                |
-| `agents-cli register-gemini-enterprise` | Register deployed agent to Gemini Enterprise                    |
-
-## 🛠️ Project Management
-
-| Command | What It Does |
-|---------|--------------|
-| `agents-cli enhance` | Add CI/CD pipelines and Terraform infrastructure |
-| `agents-cli infra prod` | One-command setup of entire CI/CD pipeline + infrastructure |
-| `agents-cli upgrade` | Auto-upgrade to latest version while preserving customizations |
-| `agents-cli extract` | Extract minimal, shareable version of your agent |
-
----
-
-## Development
-
-Edit your agent logic in `app/agent.py` and test with `agents-cli dev` - it auto-reloads on save.
-
-## Deployment
+Run the integration tests:
 
 ```bash
-gcloud config set project <your-project-id>
-agents-cli deploy
+uv run pytest tests/integration -q
 ```
 
-To add CI/CD and Terraform, run `agents-cli enhance`.
-To set up your production infrastructure, run `agents-cli infra prod`.
+## Deploy
 
-## Observability
+Deploy to Vertex AI Agent Engine:
 
-Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
+```bash
+export GOOGLE_CLOUD_PROJECT=<your-project-id>
+export GOOGLE_CLOUD_STORAGE_BUCKET=<your-staging-bucket>
+uv run python deployment/deploy.py
+```
+
+Delete a deployed instance:
+
+```bash
+uv run python deployment/deploy.py --delete <resource_id>
+```
+
+## Project Layout
+
+- `sre_helper/agent.py` — orchestrator `Agent` + `AgentEngineApp` (lazy-built).
+- `sre_helper/app_utils/` — feedback schema, telemetry, config helpers.
+- `deployment/deploy.py` — Vertex AI Agent Engine deployment.
+- `tests/integration/` — pytest suite.
 
 ## Documentation
 
-Central documentation is located in the `docs/` folder at the root of the repository.
 - [System Architecture](../docs/architecture.md)
-- [Observability Query Guidelines](../docs/observability_queries.md)
+- [Local Running](../docs/local_running.md)
+- [Deployment Patterns](../docs/deployment_patterns.md)

@@ -14,16 +14,22 @@
 
 from unittest.mock import MagicMock
 
+import pydantic
 import pytest
 
 
 @pytest.fixture
 def agent_app(monkeypatch: pytest.MonkeyPatch):
-    """Fixture to create and set up AgentEngineApp instance without cloud calls."""
+    """Build an AgentEngineApp without any cloud calls."""
     pytest.importorskip("a2a")
     pytest.importorskip("vertexai")
+    pytest.importorskip("google.adk")
 
     monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
+    # ``AdkApp.__init__`` reads ``vertexai.init`` global config, so we must
+    # set a project before ``get_app()`` constructs the wrapper.
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
     monkeypatch.setattr("vertexai.init", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "vertexai.agent_engines.templates.adk.AdkApp.set_up",
@@ -33,9 +39,16 @@ def agent_app(monkeypatch: pytest.MonkeyPatch):
     mock_client = MagicMock()
     monkeypatch.setattr("google.cloud.logging.Client", lambda: mock_client)
 
-    from app.agent import app as agent_engine
+    # Avoid hitting the registry / network during agent construction.
+    from sre_helper import agent as agent_module
 
-    agent_engine.set_up()
+    fake_agent = MagicMock(name="fake_agent")
+    monkeypatch.setattr(agent_module, "_build_agent", lambda: fake_agent)
+    monkeypatch.setattr(agent_module, "_app", None)
+
+    agent_engine = agent_module.get_app()
+    # Manually wire the logging client because ``set_up`` is stubbed above.
+    agent_engine._logging_client = mock_client
     return agent_engine
 
 
@@ -50,7 +63,7 @@ def test_agent_feedback(agent_app) -> None:
 
     agent_app.register_feedback(feedback_data)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(pydantic.ValidationError):
         invalid_feedback = {
             "score": "invalid",
             "text": "Bad feedback",
@@ -61,6 +74,6 @@ def test_agent_feedback(agent_app) -> None:
 
 
 def test_register_operations_includes_feedback(agent_app) -> None:
-    """register_feedback should be exposed as an operation."""
+    """``register_feedback`` should be exposed as a sync operation."""
     operations = agent_app.register_operations()
     assert "register_feedback" in operations.get("", [])

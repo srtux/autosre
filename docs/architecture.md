@@ -1,10 +1,10 @@
 # System Architecture
 
-This document describes the architecture of the AutoSRE system, which consists of a root agent orchestrating specialist observability agents.
+This document describes the architecture of the AutoSRE system, which consists of a root orchestrator agent that delegates observability work to a specialist agent over A2A.
 
 ## Overview
 
-The system is designed to assist Site Reliability Engineers (SREs) in investigating incidents. It uses a multi-agent approach where a central orchestrator delegates tasks to specialized agents that have access to specific observability data sources via Model Context Protocol (MCP) servers.
+The system is designed to assist Site Reliability Engineers (SREs) in investigating incidents. A central orchestrator (`sre-helper`) gathers context from the user and delegates observability tasks to a single specialist (`o11y-agent`), which accesses Google Cloud data via Model Context Protocol (MCP) servers.
 
 ## Component Diagram
 
@@ -12,152 +12,115 @@ The following diagram illustrates the relationship between the agents and the MC
 
 ```mermaid
 graph TD
-    User([User]) --> SREHelper[sre-helper Root Agent]
-    SREHelper -->|Delegates to| O11yAgent[o11y-agent ParallelAgent]
-    
-    subgraph O11yAgent [Observability Agent]
-        LoggingAgent[Logging Agent]
-        TraceAgent[Trace Agent]
-        MetricsAgent[Metrics Agent]
-    end
-    
-    O11yAgent -.-> LoggingAgent
-    O11yAgent -.-> TraceAgent
-    O11yAgent -.-> MetricsAgent
-    
-    LoggingAgent -->|Uses| LoggingMCP[logging-mcp-server]
-    TraceAgent -->|Uses| TraceMCP[trace-mcp-server]
-    MetricsAgent -->|Uses| MetricsMCP[metrics-mcp-server]
-    
+    User([User]) --> SREHelper[sre-helper Root Orchestrator]
+    SREHelper -->|A2A sub_agent| O11yAgent[o11y-agent OpsAgent - single Agent]
+
+    O11yAgent -->|MCP toolset| LoggingMCP[logging-mcp-server]
+    O11yAgent -->|MCP toolset| TraceMCP[trace-mcp-server]
+    O11yAgent -->|MCP toolset| MonitoringMCP[monitoring-mcp-server]
+    O11yAgent -->|MCP toolset| ErrorMCP[error-reporting-mcp-server]
+
     LoggingMCP -->|Queries| GCP_Logging[(Cloud Logging)]
     TraceMCP -->|Queries| GCP_Trace[(Cloud Trace)]
-    MetricsMCP -->|Queries| GCP_Metrics[(Cloud Monitoring)]
+    MonitoringMCP -->|Queries| GCP_Monitoring[(Cloud Monitoring)]
+    ErrorMCP -->|Queries| GCP_Error[(Error Reporting)]
 ```
 
 ## Components
 
-### 1. SRE Helper (Root Agent)
-- **File**: `sre-helper/app/agent.py`
+### 1. SRE Helper (Root Orchestrator)
+- **File**: `sre-helper/sre_helper/agent.py`
 - **Role**: Orchestrator for SRE incidents.
 - **Model**: `gemini-2.5-flash`
-- **Function**: Gathers incident details from the user and delegates the investigation to the `o11y-agent`.
+- **Function**: Gathers incident details from the user and delegates the investigation to the `o11y-agent`. Uses ADK's `AgentRegistry` to resolve the remote agent and wires it into `sub_agents` for direct delegation — no custom HTTP wrappers.
 
 ### 2. Observability Agent (o11y-agent)
 - **File**: `o11y-agent/app/agent.py`
 - **Role**: Specialist agent for observability tasks.
-- **Type**: `App` wrapping an `Agent`
-- **Function**: Exposed as an A2A (Agent-to-Agent) server. It currently serves the **Logging Agent** directly to satisfy Vertex AI Reasoning Engine deployment expectations.
-  > [!NOTE]
-  > In the current implementation, this agent directly exposes the **Logging Agent** as the root of the app to avoid attribute validation failures (like missing `plugins` or `resumability_config`) observed when using `ParallelAgent` or raw agents without the `App` wrapper.
+- **Type**: A single ADK `Agent` (`OpsAgent`) exposed as an A2A server.
+- **Toolsets**: Four MCP toolsets resolved via `AgentRegistry`:
+  - `logging-mcp-server` (Cloud Logging)
+  - `trace-mcp-server` (Cloud Trace)
+  - `monitoring-mcp-server` (Cloud Monitoring)
+  - `error-reporting-mcp-server` (Error Reporting)
+- **Model**: `gemini-2.5-flash`
+- **Function**: Receives a task from `sre-helper` over A2A, plans which toolsets to call based on the investigation, and returns a consolidated analysis. There is no `ParallelAgent` and no sub-agents — the single `OpsAgent` decides which tools to invoke per request.
 
-### 3. Specialist Agents
-All specialist agents use `gemini-2.5-flash`.
-
-- **Logging Agent**: Specialized in analyzing logs. Uses `logging-mcp-server`.
-- **Trace Agent**: Specialized in analyzing traces. Uses `trace-mcp-server`.
-- **Metrics Agent**: Specialized in analyzing metrics. Uses `metrics-mcp-server`.
-
-### 4. MCP Servers
-These servers provide tools for the agents to interact with Google Cloud services.
+### 3. MCP Servers
+These MCP servers — registered in Agent Registry and discovered by resource ID — provide tools for the `OpsAgent` to interact with Google Cloud services.
 - **logging-mcp-server**: Tools for querying Cloud Logging.
 - **trace-mcp-server**: Tools for querying Cloud Trace.
-- **metrics-mcp-server**: Tools for querying Cloud Monitoring.
+- **monitoring-mcp-server**: Tools for querying Cloud Monitoring.
+- **error-reporting-mcp-server**: Tools for querying Error Reporting.
 
 ## Data Flow
 
 1. The user interacts with the `sre-helper` agent describing an incident.
-2. `sre-helper` identifies that it needs observability data and calls the `o11y-agent` (retrieved via `AgentRegistry`).
-3. `o11y-agent` orchestrates the request among its sub-agents (Logging, Trace, Metrics).
-4. Each sub-agent uses its specific MCP tool to query Google Cloud.
-5. The results are aggregated and returned back to `sre-helper`, which then provides a consolidated response to the user.
+2. `sre-helper` identifies that it needs observability data and delegates to the `o11y-agent` (resolved via `AgentRegistry` and attached as a sub-agent).
+3. `o11y-agent` (the `OpsAgent`) chooses which of its four MCP toolsets to call based on the task.
+4. Each MCP server queries the corresponding Google Cloud service.
+5. `o11y-agent` aggregates the tool results into a response; `sre-helper` consolidates it into the final answer to the user.
 
 ## Security & Permissions
 
 ### Agent Identity and Access Control
 
-When deployed to Vertex AI Reasoning Engine, agents need permissions to access the Agent Registry, query logs, and invoke MCP tools.
+When deployed to Vertex AI Agent Engine, agents need permissions to access Agent Registry, query logs, and invoke MCP tools.
 
 #### 1. SPIFFE Identity (Workload Identity Federation)
-In this project environment, Reasoning Engines are identified by a SPIFFE-formatted principal rather than a standard service account.
+In this project environment, Agent Engine deployments are identified by a SPIFFE-formatted principal rather than a standard service account.
 
 **Format:**
-`principal://agents.global.org-888160148396.system.id.goog/resources/aiplatform/projects/<PROJECT_NUMBER>/locations/us-central1/reasoningEngines/<REASONING_ENGINE_ID>`
+`principal://agents.global.org-<ORGANIZATION_ID>.system.id.goog/resources/aiplatform/projects/<PROJECT_NUMBER>/locations/<LOCATION>/reasoningEngines/<REASONING_ENGINE_ID>`
 
 **Required Roles:**
 - **Agent Registry Viewer** (`roles/agentregistry.viewer`): To resolve remote agents and MCP servers.
 - **Logging Viewer** (`roles/logging.viewer`): To query Cloud Logging.
+- **Cloud Trace Viewer** (`roles/cloudtrace.viewer`): To query Cloud Trace.
+- **Monitoring Viewer** (`roles/monitoring.viewer`): To query Cloud Monitoring.
+- **Error Reporting Viewer** (`roles/errorreporting.viewer`): To query Error Reporting.
 - **MCP Tool User** (`roles/mcp.toolUser`): To invoke MCP tools.
+- **Vertex AI User** (`roles/aiplatform.user`): Required on **both** caller and callee for A2A `reasoningEngines.query`.
 
-**Example Commands:**
-```bash
-# Grant Logging Viewer
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="principal://agents.global.org-888160148396.system.id.goog/resources/aiplatform/projects/<PROJECT_NUMBER>/locations/us-central1/reasoningEngines/<REASONING_ENGINE_ID>" \
-    --role="roles/logging.viewer"
-
-# Grant MCP Tool User
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="principal://agents.global.org-888160148396.system.id.goog/resources/aiplatform/projects/<PROJECT_NUMBER>/locations/us-central1/reasoningEngines/<REASONING_ENGINE_ID>" \
-    --role="roles/mcp.toolUser"
-```
+Use `scripts/setup_iam.sh` to grant these roles. See [deployment_patterns.md](deployment_patterns.md#2-iam-permissions-for-a2a-and-mcp-tools) for details.
 
 #### 2. Service Account Identity (Fallback)
-If the agent falls back to using the Platform Service Agent identity, the following configuration applies:
+If the agent falls back to the Platform Service Agent identity, the principal is:
 
-**Principal:** `service-<PROJECT_NUMBER>@gcp-sa-aiplatform-re.iam.gserviceaccount.com`
-
-**Example Command:**
-```bash
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-aiplatform-re.iam.gserviceaccount.com" \
-    --role="roles/agentregistry.viewer"
-```
+`serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-aiplatform-re.iam.gserviceaccount.com`
 
 #### 3. Enabling Agent Identity during Deployment
-To ensure the agent is provisioned with a SPIFFE identity, you must specify `identity_type: AGENT_IDENTITY` when creating the agent instance.
+To ensure the agent is provisioned with a SPIFFE identity, specify `identity_type=AGENT_IDENTITY` when creating the agent instance. Both deploy scripts in this repository do so.
 
-**Using Python SDK:**
+**Using the Python SDK:**
 ```python
 from vertexai import types
 
 remote_app = client.agent_engines.create(
-  agent=app,
-  config={
-    "display_name": "running-agent-with-identity",
-    "identity_type": types.IdentityType.AGENT_IDENTITY,
-    ...
-  },
+    agent=app,
+    config={
+        "display_name": "running-agent-with-identity",
+        "identity_type": types.IdentityType.AGENT_IDENTITY,
+        # ...
+    },
 )
 ```
 
-**Using `agents-cli`:**
-Add `identity_type = "AGENT_IDENTITY"` to the `[tool.agents-cli.create_params]` section in your `pyproject.toml`:
-
-```toml
-[tool.agents-cli.create_params]
-deployment_target = "agent_engine"
-identity_type = "AGENT_IDENTITY"
-```
-
-#### 4. Recommended Deployment Method (Custom SDK Script)
-Since `agents-cli` may not support setting the `identity_type` correctly via configuration files, a custom Python script is provided to deploy agents with Agent Identity enabled.
-
-The script is located at `scripts/deploy.py`.
-
-**To deploy an agent:**
-1. Navigate to the agent's directory (to use its specific environment).
-2. Run the script pointing to the current directory (`.`):
+#### 4. Deployment Method (Per-Agent Deploy Scripts)
+Each agent has its own deploy script that handles the temp-directory staging described in [deployment_patterns.md §1](deployment_patterns.md#1-moduleNotFoundError-no-module-named-appagent) and sets `identity_type=AGENT_IDENTITY`.
 
 **For `o11y-agent`:**
 ```bash
 cd o11y-agent
 uv sync
-uv run python ../scripts/deploy.py .
+uv run python deploy.py
 ```
 
 **For `sre-helper`:**
 ```bash
 cd sre-helper
 uv sync
-uv run python ../scripts/deploy.py .
+uv run python deployment/deploy.py
 ```
+
+Both scripts read `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_STORAGE_BUCKET` from the environment (see `.env.example`).

@@ -1,22 +1,22 @@
-# 🛠️ AutoSRE: Multi-Agent Observability Orchestrator
+# AutoSRE: Multi-Agent Observability Orchestrator
 
 Welcome to the **AutoSRE** repository. This project implements an experimental multi-agent system designed to assist Site Reliability Engineers (SREs) in investigating incidents using advanced AI reasoning.
 
 ---
 
-## 🗺️ Overview
+## Overview
 
-The system uses a hierarchical multi-agent architecture powered by Google's ADK (Agent Development Kit) and `gemini-2.5-flash`.
+The system uses a multi-agent architecture powered by Google's ADK (Agent Development Kit) and `gemini-2.5-flash`.
 
-- **`sre-helper/`**: The **Root Orchestrator Agent**. It interacts with the user, gathers incident context, and delegates complex observability tasks to specialized agents.
-- **`o11y-agent/`**: The **Observability Specialist Agent**. It runs as an independent service (using the A2A protocol) and wraps sub-agents specialized in querying logs, traces, and metrics via Model Context Protocol (MCP) servers.
+- **`sre-helper/`**: The **Root Orchestrator Agent**. It interacts with the user, gathers incident context, and delegates observability work to the `o11y-agent` via the A2A protocol using ADK's `AgentRegistry` + `sub_agents` pattern.
+- **`o11y-agent/`**: The **Observability Specialist Agent**. It runs as an independent A2A service and is implemented as a **single `OpsAgent` with four MCP toolsets** — Logging, Trace, Monitoring, and Error Reporting — each backed by a Model Context Protocol (MCP) server in Agent Registry.
 - **`docs/`**: Centralized documentation covering architecture, local testing workflows, and query guidelines.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### 💻 Local Development & Testing
+### Local Development & Testing
 
 To test the full multi-agent flow locally with production-parity, we run the agents in separate processes communicating via HTTP (A2A protocol).
 
@@ -32,33 +32,34 @@ cd ../o11y-agent && uv sync
 
 #### 2. Start the Observability Agent
 
-From the `o11y-agent` directory, start the agent server:
+From the `o11y-agent` directory, start the A2A server on port 10000:
 
 ```bash
-uv run adk api_server --a2a --port=8005 ./
+uv run uvicorn app.a2a_server:a2a_app_factory --factory --port 10000
 ```
 
-#### 3. Run the Integration Test
+#### 3. Run the Integration Tests
 
 From the `sre-helper` directory, run the tests:
 
 ```bash
-PYTHONPATH=app uv run python -m pytest
+uv run pytest tests/integration -q
 ```
 
 ---
 
-### ☁️ Deployment to Google Cloud (GCP)
+### Deployment to Google Cloud (GCP)
 
-Deploy the agents to Vertex AI Reasoning Engine for production use.
+Deploy the agents to Vertex AI Agent Engine (Reasoning Engine) for production use. Each agent has its own deploy script; there is no longer a shared `scripts/deploy.py`.
 
 #### 1. Set up Environment
 
-Ensure you have the Google Cloud SDK configured:
+Copy `.env.example` to `.env` and fill in the required values. At minimum, deployment requires:
 
-```bash
-gcloud config set project <your-project-id>
-```
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_STORAGE_BUCKET`
+
+`GOOGLE_CLOUD_LOCATION` is optional (defaults to `us-central1`). Ensure the Google Cloud SDK is configured (`gcloud config set project <your-project-id>`).
 
 #### 2. Deploy o11y-agent (Child Agent First)
 
@@ -66,7 +67,7 @@ From the `o11y-agent` directory:
 
 ```bash
 uv sync
-uv run python ../scripts/deploy.py .
+uv run python deploy.py
 ```
 
 #### 3. Deploy sre-helper (Root Agent)
@@ -75,47 +76,31 @@ From the `sre-helper` directory:
 
 ```bash
 uv sync
-uv run python ../scripts/deploy.py .
+uv run python deployment/deploy.py
 ```
 
 ---
 
-## 🛠️ Tooling & Commands
+## Common Workflows
 
-To manage the lifecycle of the agents, you should install the `agents-cli` tool.
-
-### Installation
-Ensure you have `uv` installed, then run:
-```bash
-uv tool install agents-cli
-```
-
-### Common Commands
-Here are the most common commands used during development:
-
-| Command | Purpose |
-|:---|:---|
-| `uv run agents-cli dev` | Interactive local testing |
-| `uv run agents-cli test` | Run unit and integration tests |
-| `uv run agents-cli eval` | Run evaluation against evalsets |
-| `uv run agents-cli deploy` | Deploy agents to Agent Engine |
-
-For a full list of commands and advanced usage, see `GEMINI.md`.
+Common development, testing, and deployment workflows are documented in [docs/local_running.md](docs/local_running.md).
 
 ---
 
-## 📚 Deep Dives
+## Deep Dives
 
 For more details, refer to the central documentation:
 
 - **[System Architecture](docs/architecture.md)**: High-level design and data flow.
 - **[Local Running Guide](docs/local_running.md)**: Detailed local testing instructions.
-- **[Observability Queries](docs/observability_queries.md)**: Guidelines for specialist agents.
+- **[A2A Development Guide](docs/a2a_development.md)**: A2A payload shape and executor patterns.
+- **[Deployment Patterns](docs/deployment_patterns.md)**: Lessons learned deploying to Agent Engine.
+- **[Observability Queries](docs/observability_queries.md)**: Query guidelines for the specialist agent's toolsets.
 
-## 🛡️ Code Quality
+## Code Quality
 
 Keep the codebase pristine:
 
 ```bash
-uvx ruff check .
+uv run ruff check .
 ```
